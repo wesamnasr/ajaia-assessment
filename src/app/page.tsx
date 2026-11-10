@@ -144,25 +144,167 @@ export default function AjaiaDocsWorkspace() {
     []
   );
 
-  const syncEditorDom = useCallback((html: string) => {
-    setDraftHtml(html);
-    if (editorRef.current && editorRef.current.innerHTML !== html) {
-      editorRef.current.innerHTML = html;
+  const isStarterTemplateHtml = useCallback((html: string): boolean => {
+    const plain = stripHtmlToPlainText(html || '').trim();
+    return (
+      !plain ||
+      plain ===
+        'Untitled Collaborative Spec Start typing here, apply rich formatting from the toolbar above, or import a file...' ||
+      plain ===
+        'Start typing here, apply rich formatting from the toolbar above, or import a file...'
+    );
+  }, []);
+
+  const syncEditorDom = useCallback(
+    (html: string) => {
+      const normalized = isStarterTemplateHtml(html) ? '' : html;
+      setDraftHtml(normalized);
+      if (editorRef.current && editorRef.current.innerHTML !== normalized) {
+        editorRef.current.innerHTML = normalized;
+      }
+    },
+    [isStarterTemplateHtml]
+  );
+
+  const readDocsCache = useCallback((): Record<string, DocumentDetail> => {
+    try {
+      const raw = window.localStorage.getItem('ajaia_docs_cache_v1');
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
     }
   }, []);
 
+  const readDeletedDocIds = useCallback((): string[] => {
+    try {
+      const raw = window.localStorage.getItem('ajaia_deleted_docs_v1');
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const writeDocToCache = useCallback(
+    (doc: DocumentDetail) => {
+      try {
+        const cache = readDocsCache();
+        cache[doc.id] = doc;
+        window.localStorage.setItem('ajaia_docs_cache_v1', JSON.stringify(cache));
+      } catch {
+        // Ignore storage quota errors
+      }
+    },
+    [readDocsCache]
+  );
+
+  const removeDocFromCache = useCallback(
+    (docId: string) => {
+      try {
+        const cache = readDocsCache();
+        delete cache[docId];
+        window.localStorage.setItem('ajaia_docs_cache_v1', JSON.stringify(cache));
+        const deleted = new Set(readDeletedDocIds());
+        deleted.add(docId);
+        window.localStorage.setItem('ajaia_deleted_docs_v1', JSON.stringify(Array.from(deleted)));
+      } catch {
+        // Ignore storage errors
+      }
+    },
+    [readDocsCache, readDeletedDocIds]
+  );
+
+  const buildSummaryFromDetail = useCallback(
+    (doc: DocumentDetail, roleOverride?: 'owner' | 'editor' | 'viewer'): DocumentSummaryItem => {
+      const plain = doc.plainText || stripHtmlToPlainText(doc.contentHtml);
+      return {
+        id: doc.id,
+        title: doc.title,
+        excerpt: plain.slice(0, 140) || 'Empty document',
+        ownerId: doc.ownerId,
+        ownerName: doc.ownerName,
+        ownerEmail: doc.ownerEmail,
+        accessRole: roleOverride || doc.accessRole,
+        shareCount: doc.shares.length,
+        attachmentCount: doc.attachments.length,
+        commentCount: doc.comments.filter((c) => !c.resolved).length,
+        wordCount: countWords(plain),
+        createdAt: doc.createdAt,
+        updatedAt: doc.updatedAt,
+      };
+    },
+    []
+  );
+
+  const syncUpdatedDocInList = useCallback(
+    (doc: DocumentDetail) => {
+      writeDocToCache(doc);
+      const summaryItem = buildSummaryFromDetail(doc);
+      if (doc.accessRole === 'owner') {
+        setOwnedDocs((prev) => {
+          const exists = prev.some((d) => d.id === doc.id);
+          return exists
+            ? prev.map((d) => (d.id === doc.id ? summaryItem : d))
+            : [summaryItem, ...prev];
+        });
+      } else {
+        setSharedDocs((prev) => {
+          const exists = prev.some((d) => d.id === doc.id);
+          return exists
+            ? prev.map((d) => (d.id === doc.id ? summaryItem : d))
+            : [summaryItem, ...prev];
+        });
+      }
+    },
+    [buildSummaryFromDetail, writeDocToCache]
+  );
+
   const fetchDocumentDetail = useCallback(
     async (docId: string, userId: string, forceDomSync = true) => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+      const cache = readDocsCache();
+      const cachedDoc = cache[docId];
       try {
         const res = await fetch(
           `/api/documents/${encodeURIComponent(docId)}?userId=${encodeURIComponent(userId)}`,
           { cache: 'no-store' }
         );
         const data = await res.json();
+        let detail: DocumentDetail;
         if (!res.ok) {
-          throw new Error(data.error || 'Could not load document');
+          if (cachedDoc) {
+            const shareMatch = cachedDoc.shares.find((s) => s.userId === userId);
+            const resolvedRole =
+              cachedDoc.ownerId === userId ? 'owner' : shareMatch ? shareMatch.role : null;
+            if (!resolvedRole) {
+              throw new Error(data.error || 'Access denied');
+            }
+            detail = { ...cachedDoc, accessRole: resolvedRole };
+          } else {
+            throw new Error(data.error || 'Could not load document');
+          }
+        } else {
+          const serverDoc: DocumentDetail = data.document;
+          if (cachedDoc && cachedDoc.updatedAt >= serverDoc.updatedAt) {
+            const shareMatch = cachedDoc.shares.find((s) => s.userId === userId);
+            const resolvedRole =
+              cachedDoc.ownerId === userId
+                ? 'owner'
+                : shareMatch
+                  ? shareMatch.role
+                  : serverDoc.accessRole;
+            detail = { ...cachedDoc, accessRole: resolvedRole };
+          } else {
+            detail = serverDoc;
+            writeDocToCache(serverDoc);
+          }
         }
-        const detail: DocumentDetail = data.document;
         setActiveDoc(detail);
         setDraftTitle(detail.title);
         setIsDirty(false);
@@ -176,7 +318,7 @@ export default function AjaiaDocsWorkspace() {
         showNotification(msg, 'error');
       }
     },
-    [showNotification, syncEditorDom]
+    [readDocsCache, showNotification, syncEditorDom, writeDocToCache]
   );
 
   const refreshWorkspace = useCallback(
@@ -194,12 +336,14 @@ export default function AjaiaDocsWorkspace() {
         if (healthRes.ok) {
           setHealth(await healthRes.json());
         }
+
+        let mergedUsers: User[] = [];
         if (usersRes.ok) {
           const uData = await usersRes.json();
           const serverUsers: User[] = Array.isArray(uData.users) ? uData.users : [];
 
           // Ensure any locally registered custom users are also persisted on the server
-          let mergedUsers = [...serverUsers];
+          mergedUsers = [...serverUsers];
           try {
             const rawSavedUsers = window.localStorage.getItem('ajaia_custom_users');
             if (rawSavedUsers) {
@@ -240,8 +384,57 @@ export default function AjaiaDocsWorkspace() {
         if (docsRes.ok) {
           const dData = await docsRes.json();
           if (seq !== refreshSeqRef.current) return;
-          const owned: DocumentSummaryItem[] = Array.isArray(dData.owned) ? dData.owned : [];
-          const shared: DocumentSummaryItem[] = Array.isArray(dData.shared) ? dData.shared : [];
+          const deletedSet = new Set(readDeletedDocIds());
+          const cache = readDocsCache();
+          const currentUserObj = mergedUsers.find((u) => u.id === userId);
+          const currentUserEmail = currentUserObj?.email?.toLowerCase() || '';
+
+          let owned: DocumentSummaryItem[] = (Array.isArray(dData.owned) ? dData.owned : []).filter(
+            (d: DocumentSummaryItem) => !deletedSet.has(d.id)
+          );
+          let shared: DocumentSummaryItem[] = (
+            Array.isArray(dData.shared) ? dData.shared : []
+          ).filter((d: DocumentSummaryItem) => !deletedSet.has(d.id));
+
+          // Reconcile with client cache so mutations (new docs, edits, share changes) survive serverless cold starts
+          for (const cachedDoc of Object.values(cache)) {
+            if (!cachedDoc || deletedSet.has(cachedDoc.id)) continue;
+            const shareMatch = cachedDoc.shares.find(
+              (s) =>
+                s.userId === userId ||
+                (currentUserEmail && s.userEmail.toLowerCase() === currentUserEmail)
+            );
+            const role: 'owner' | 'editor' | 'viewer' | null =
+              cachedDoc.ownerId === userId ? 'owner' : shareMatch ? shareMatch.role : null;
+
+            if (role === 'owner') {
+              const summary = buildSummaryFromDetail(cachedDoc, 'owner');
+              const existingIdx = owned.findIndex((d) => d.id === cachedDoc.id);
+              if (existingIdx >= 0) {
+                if (cachedDoc.updatedAt >= owned[existingIdx].updatedAt) {
+                  owned[existingIdx] = summary;
+                }
+              } else {
+                owned = [summary, ...owned];
+              }
+              shared = shared.filter((d) => d.id !== cachedDoc.id);
+            } else if (role === 'editor' || role === 'viewer') {
+              const summary = buildSummaryFromDetail(cachedDoc, role);
+              const existingIdx = shared.findIndex((d) => d.id === cachedDoc.id);
+              if (existingIdx >= 0) {
+                if (cachedDoc.updatedAt >= shared[existingIdx].updatedAt) {
+                  shared[existingIdx] = summary;
+                }
+              } else {
+                shared = [summary, ...shared];
+              }
+              owned = owned.filter((d) => d.id !== cachedDoc.id);
+            } else {
+              // User has no access in latest cached state (e.g. share was revoked / made private)
+              shared = shared.filter((d) => d.id !== cachedDoc.id);
+            }
+          }
+
           setOwnedDocs(owned);
           setSharedDocs(shared);
 
@@ -266,7 +459,14 @@ export default function AjaiaDocsWorkspace() {
         }
       }
     },
-    [fetchDocumentDetail, showNotification, syncEditorDom]
+    [
+      buildSummaryFromDetail,
+      fetchDocumentDetail,
+      readDeletedDocIds,
+      readDocsCache,
+      showNotification,
+      syncEditorDom,
+    ]
   );
 
   useEffect(() => {
@@ -292,16 +492,27 @@ export default function AjaiaDocsWorkspace() {
 
   useEffect(() => {
     if (!userHydrated) return;
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
     loadedDocIdRef.current = '';
     setActiveDoc(null);
     setOwnedDocs([]);
     setSharedDocs([]);
     setDraftTitle('');
     setDraftHtml('');
+    setIsDirty(false);
     setAiOutput(null);
     setCommentInput('');
     refreshWorkspace(activeUserId);
   }, [activeUserId, userHydrated, refreshWorkspace]);
+
+  useEffect(() => {
+    if (!canEdit && uploadMode !== 'new-document') {
+      setUploadMode('new-document');
+    }
+  }, [canEdit, uploadMode]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('theme-light', theme === 'light');
@@ -341,22 +552,22 @@ export default function AjaiaDocsWorkspace() {
   // Ensure editor DOM is populated once the contentEditable node mounts after activeDoc transitions from null
   useEffect(() => {
     if (activeDoc && editorRef.current) {
-      if (loadedDocIdRef.current !== activeDoc.id || !editorRef.current.innerHTML.trim()) {
+      if (loadedDocIdRef.current !== activeDoc.id) {
         loadedDocIdRef.current = activeDoc.id;
-        editorRef.current.innerHTML = activeDoc.contentHtml;
-        setDraftHtml(activeDoc.contentHtml);
+        const normalized = isStarterTemplateHtml(activeDoc.contentHtml)
+          ? ''
+          : activeDoc.contentHtml;
+        editorRef.current.innerHTML = normalized;
+        setDraftHtml(normalized);
       }
     }
-  }, [activeDoc]);
+  }, [activeDoc, isStarterTemplateHtml]);
 
   const handleSaveDocument = useCallback(
     async (createSnapshot = false, customSummary?: string) => {
       if (!activeDoc || !canEdit) return;
-      const trimmedTitle = draftTitle.trim();
-      if (!trimmedTitle) {
-        showNotification('Document title cannot be empty', 'error');
-        return;
-      }
+      const trimmedTitle =
+        draftTitle.trim() || activeDoc.title || 'Untitled Collaborative Spec';
 
       const currentHtml = editorRef.current ? editorRef.current.innerHTML : draftHtml;
       setIsSaving(true);
@@ -383,18 +594,17 @@ export default function AjaiaDocsWorkspace() {
 
         const updated: DocumentDetail = payload.document;
         setActiveDoc(updated);
-        setIsDirty(false);
-        setSaveStatusText(`Saved at ${new Date(updated.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`);
-
-        // Refresh sidebar list counts/titles silently
-        const listRes = await fetch(`/api/documents?userId=${encodeURIComponent(activeUserId)}`, {
-          cache: 'no-store',
-        });
-        if (listRes.ok) {
-          const listData = await listRes.json();
-          setOwnedDocs(Array.isArray(listData.owned) ? listData.owned : []);
-          setSharedDocs(Array.isArray(listData.shared) ? listData.shared : []);
+        if (!editorRef.current || editorRef.current.innerHTML === currentHtml) {
+          setIsDirty(false);
         }
+        setSaveStatusText(
+          `Saved at ${new Date(updated.updatedAt).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          })}`
+        );
+        syncUpdatedDocInList(updated);
         if (createSnapshot) {
           showNotification('Document saved and version snapshot recorded.', 'success');
         }
@@ -406,7 +616,16 @@ export default function AjaiaDocsWorkspace() {
         setIsSaving(false);
       }
     },
-    [activeDoc, canEdit, draftTitle, draftHtml, activeUserId, activeUser?.name, showNotification]
+    [
+      activeDoc,
+      canEdit,
+      draftTitle,
+      draftHtml,
+      activeUserId,
+      activeUser?.name,
+      showNotification,
+      syncUpdatedDocInList,
+    ]
   );
 
   // Debounced auto-save when user edits title or rich text
@@ -437,15 +656,26 @@ export default function AjaiaDocsWorkspace() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: 'Untitled Collaborative Spec',
-          contentHtml:
-            '<h1>Untitled Collaborative Spec</h1><p>Start typing here, apply rich formatting from the toolbar above, or import a file...</p>',
+          contentHtml: '',
           ownerId: activeUserId,
+          ownerName: activeUser?.name,
+          ownerEmail: activeUser?.email,
         }),
       });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || 'Could not create document');
       const created: DocumentDetail = payload.document;
-      await refreshWorkspace(activeUserId, created.id);
+      if (editorRef.current) {
+        loadedDocIdRef.current = created.id;
+      } else {
+        loadedDocIdRef.current = '';
+      }
+      setActiveDoc(created);
+      setDraftTitle(created.title);
+      setIsDirty(false);
+      setSaveStatusText('All changes saved');
+      syncEditorDom(created.contentHtml);
+      syncUpdatedDocInList(created);
       showNotification(`Created "${created.title}"`, 'success');
     } catch (err) {
       showNotification(err instanceof Error ? err.message : 'Failed to create document', 'error');
@@ -456,16 +686,30 @@ export default function AjaiaDocsWorkspace() {
     if (!activeDoc || !isOwner) return;
     setIsDeleting(true);
     try {
+      const targetId = activeDoc.id;
+      const deletedTitle = activeDoc.title;
       const res = await fetch(
-        `/api/documents/${encodeURIComponent(activeDoc.id)}?userId=${encodeURIComponent(activeUserId)}`,
+        `/api/documents/${encodeURIComponent(targetId)}?userId=${encodeURIComponent(activeUserId)}`,
         { method: 'DELETE' }
       );
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || 'Failed to delete document');
-      const deletedTitle = activeDoc.title;
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok && res.status !== 404) {
+        throw new Error(payload.error || 'Failed to delete document');
+      }
+      removeDocFromCache(targetId);
       setShowDeleteConfirmModal(false);
+      const remainingOwned = ownedDocs.filter((d) => d.id !== targetId);
+      setOwnedDocs(remainingOwned);
+      const nextDoc = remainingOwned[0] || sharedDocs[0];
+      if (nextDoc) {
+        await fetchDocumentDetail(nextDoc.id, activeUserId, true);
+      } else {
+        loadedDocIdRef.current = '';
+        setActiveDoc(null);
+        setDraftTitle('');
+        syncEditorDom('');
+      }
       showNotification(`Deleted "${deletedTitle}"`, 'info');
-      await refreshWorkspace(activeUserId);
     } catch (err) {
       showNotification(err instanceof Error ? err.message : 'Delete failed', 'error');
     } finally {
@@ -490,10 +734,45 @@ export default function AjaiaDocsWorkspace() {
       });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || 'Failed to update sharing');
-      setActiveDoc(payload.document);
+      const updatedDoc: DocumentDetail = payload.document;
+      setActiveDoc(updatedDoc);
+      syncUpdatedDocInList(updatedDoc);
+
+      // If an email share invited a new user, add them to users state & localStorage so they appear in Switch / Sign In
+      for (const s of updatedDoc.shares) {
+        if (!users.some((u) => u.id === s.userId || u.email.toLowerCase() === s.userEmail.toLowerCase())) {
+          const invitedUser: User = {
+            id: s.userId,
+            name: s.userName,
+            email: s.userEmail,
+            roleTitle: 'Invited Collaborator',
+            avatarColor: '#7c3aed',
+          };
+          setUsers((prev) =>
+            prev.some((u) => u.id === invitedUser.id) ? prev : [...prev, invitedUser]
+          );
+          try {
+            const rawSaved = window.localStorage.getItem('ajaia_custom_users');
+            const parsedSaved: User[] = rawSaved ? JSON.parse(rawSaved) : [];
+            const nextSaved = Array.isArray(parsedSaved)
+              ? [
+                  ...parsedSaved.filter(
+                    (u) =>
+                      u.id !== invitedUser.id &&
+                      u.email.toLowerCase() !== invitedUser.email.toLowerCase()
+                  ),
+                  invitedUser,
+                ]
+              : [invitedUser];
+            window.localStorage.setItem('ajaia_custom_users', JSON.stringify(nextSaved));
+          } catch {
+            // Ignore storage errors
+          }
+        }
+      }
+
       setShareTarget('');
       setShareTargetName('');
-      await refreshWorkspace(activeUserId, activeDoc.id);
       showNotification(`Shared document with ${shareTarget} as ${shareRole.toUpperCase()}`, 'success');
     } catch (err) {
       showNotification(err instanceof Error ? err.message : 'Share failed', 'error');
@@ -516,8 +795,9 @@ export default function AjaiaDocsWorkspace() {
       });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || 'Failed to share');
-      setActiveDoc(payload.document);
-      await refreshWorkspace(activeUserId, activeDoc.id);
+      const updatedDoc: DocumentDetail = payload.document;
+      setActiveDoc(updatedDoc);
+      syncUpdatedDocInList(updatedDoc);
       showNotification('Updated collaborator access permissions.', 'success');
     } catch (err) {
       showNotification(err instanceof Error ? err.message : 'Could not update share', 'error');
@@ -535,8 +815,9 @@ export default function AjaiaDocsWorkspace() {
       );
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || 'Failed to revoke access');
-      setActiveDoc(payload.document);
-      await refreshWorkspace(activeUserId, activeDoc.id);
+      const updatedDoc: DocumentDetail = payload.document;
+      setActiveDoc(updatedDoc);
+      syncUpdatedDocInList(updatedDoc);
       showNotification('Collaborator access revoked.', 'info');
     } catch (err) {
       showNotification(err instanceof Error ? err.message : 'Revoke failed', 'error');
@@ -559,45 +840,35 @@ export default function AjaiaDocsWorkspace() {
         latestDoc = payload.document;
       }
       setActiveDoc(latestDoc);
-      await refreshWorkspace(activeUserId, activeDoc.id);
+      syncUpdatedDocInList(latestDoc);
       showNotification(`"${activeDoc.title}" is now Private (Only You).`, 'info');
     } catch (err) {
       showNotification(err instanceof Error ? err.message : 'Failed to make document private', 'error');
     }
   };
 
-  const syncUpdatedDocInList = useCallback((doc: DocumentDetail) => {
-    const summaryItem: DocumentSummaryItem = {
-      id: doc.id,
-      title: doc.title,
-      excerpt: (doc.plainText || stripHtmlToPlainText(doc.contentHtml)).slice(0, 140) || 'Empty document',
-      ownerId: doc.ownerId,
-      ownerName: doc.ownerName,
-      ownerEmail: doc.ownerEmail,
-      accessRole: doc.accessRole,
-      shareCount: doc.shares.length,
-      attachmentCount: doc.attachments.length,
-      commentCount: doc.comments.filter((c) => !c.resolved).length,
-      wordCount: countWords(doc.plainText || stripHtmlToPlainText(doc.contentHtml)),
-      createdAt: doc.createdAt,
-      updatedAt: doc.updatedAt,
-    };
-    if (doc.accessRole === 'owner') {
-      setOwnedDocs((prev) => {
-        const exists = prev.some((d) => d.id === doc.id);
-        return exists
-          ? prev.map((d) => (d.id === doc.id ? summaryItem : d))
-          : [summaryItem, ...prev];
-      });
-    } else {
-      setSharedDocs((prev) => {
-        const exists = prev.some((d) => d.id === doc.id);
-        return exists
-          ? prev.map((d) => (d.id === doc.id ? summaryItem : d))
-          : [summaryItem, ...prev];
-      });
+  const handleRemoveAttachment = async (att: DocumentAttachment) => {
+    if (!activeDoc || !canEdit) return;
+    try {
+      const res = await fetch(
+        `/api/documents/upload?documentId=${encodeURIComponent(
+          activeDoc.id
+        )}&attachmentId=${encodeURIComponent(att.id)}&userId=${encodeURIComponent(activeUserId)}`,
+        { method: 'DELETE' }
+      );
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || 'Failed to remove attachment');
+      const updatedDoc: DocumentDetail = payload.document;
+      setActiveDoc(updatedDoc);
+      syncUpdatedDocInList(updatedDoc);
+      if (previewAttachment?.id === att.id) {
+        setPreviewAttachment(null);
+      }
+      showNotification(`Removed attachment "${att.fileName}"`, 'info');
+    } catch (err) {
+      showNotification(err instanceof Error ? err.message : 'Could not remove attachment', 'error');
     }
-  }, []);
+  };
 
   const handleFileUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -615,6 +886,8 @@ export default function AjaiaDocsWorkspace() {
       formData.append('file', selectedFiles[0]);
       formData.append('mode', uploadMode);
       formData.append('userId', activeUserId);
+      if (activeUser?.name) formData.append('userName', activeUser.name);
+      if (activeUser?.email) formData.append('userEmail', activeUser.email);
       if (activeDoc?.id) {
         formData.append('documentId', activeDoc.id);
       }
@@ -669,7 +942,9 @@ export default function AjaiaDocsWorkspace() {
       });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || 'Failed to add comment');
-      setActiveDoc(payload.document);
+      const updatedDoc: DocumentDetail = payload.document;
+      setActiveDoc(updatedDoc);
+      syncUpdatedDocInList(updatedDoc);
       setCommentInput('');
     } catch (err) {
       showNotification(err instanceof Error ? err.message : 'Comment error', 'error');
@@ -685,7 +960,11 @@ export default function AjaiaDocsWorkspace() {
         body: JSON.stringify({ userId: activeUserId, commentId }),
       });
       const payload = await res.json();
-      if (res.ok) setActiveDoc(payload.document);
+      if (res.ok) {
+        const updatedDoc: DocumentDetail = payload.document;
+        setActiveDoc(updatedDoc);
+        syncUpdatedDocInList(updatedDoc);
+      }
     } catch {
       // Ignore transient toggle error
     }
@@ -705,6 +984,7 @@ export default function AjaiaDocsWorkspace() {
       setActiveDoc(restored);
       setDraftTitle(restored.title);
       syncEditorDom(restored.contentHtml);
+      syncUpdatedDocInList(restored);
       setIsDirty(false);
       showNotification('Restored document to selected version snapshot.', 'success');
     } catch (err) {
@@ -943,7 +1223,12 @@ export default function AjaiaDocsWorkspace() {
 
             <button
               type="button"
-              onClick={() => setShowUploadModal(true)}
+              onClick={() => {
+                if (!activeDoc || !canEdit) {
+                  setUploadMode('new-document');
+                }
+                setShowUploadModal(true);
+              }}
               className="text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 flex items-center gap-1.5 transition"
             >
               <FileUp className="h-3.5 w-3.5 text-blue-400" />
@@ -1127,19 +1412,6 @@ export default function AjaiaDocsWorkspace() {
               />
             </div>
 
-            {/* Active Identity Card */}
-            {activeUser && (
-              <div className="rounded-lg bg-slate-950/90 border border-slate-800/90 p-2.5 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-slate-200">{activeUser.name}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                    {activeUser.roleTitle}
-                  </span>
-                </div>
-                <div className="text-slate-400 text-[11px] mt-0.5">{activeUser.email}</div>
-              </div>
-            )}
-
             {/* Owned Documents List */}
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between px-1">
@@ -1320,7 +1592,10 @@ export default function AjaiaDocsWorkspace() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowUploadModal(true)}
+                  onClick={() => {
+                    setUploadMode('new-document');
+                    setShowUploadModal(true);
+                  }}
                   className="bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5"
                 >
                   <FileUp className="h-3.5 w-3.5 text-blue-400" />
@@ -1421,13 +1696,23 @@ export default function AjaiaDocsWorkspace() {
                     type="text"
                     value={draftTitle}
                     disabled={!canEdit}
+                    onFocus={() => {
+                      if (canEdit && draftTitle === 'Untitled Collaborative Spec') {
+                        setDraftTitle('');
+                      }
+                    }}
+                    onBlur={() => {
+                      if (!draftTitle.trim()) {
+                        setDraftTitle('Untitled Collaborative Spec');
+                      }
+                    }}
                     onChange={(e) => {
                       setDraftTitle(e.target.value);
                       setIsDirty(true);
                     }}
-                    placeholder="Document Title..."
+                    placeholder="Untitled Collaborative Spec"
                     aria-label="Document Title"
-                    className="w-full bg-transparent text-xl md:text-2xl font-bold text-white border-b border-transparent focus:border-blue-500 focus:outline-none pb-1 disabled:opacity-80"
+                    className="w-full bg-transparent text-xl md:text-2xl font-bold text-white border-b border-transparent focus:border-blue-500 focus:outline-none pb-1 disabled:opacity-80 placeholder:text-slate-400/60"
                   />
                 </div>
 
@@ -1470,6 +1755,16 @@ export default function AjaiaDocsWorkspace() {
                           >
                             <Download className="h-3 w-3" />
                           </button>
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAttachment(att)}
+                              className="p-0.5 rounded hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition"
+                              title="Remove attachment"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
                         </div>
                       ))
                     )}
@@ -1625,7 +1920,22 @@ export default function AjaiaDocsWorkspace() {
               </div>
 
               {/* Rich-Text Paper Canvas */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-6 md:p-8 shadow-xl print-only-sheet">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-6 md:p-8 shadow-xl print-only-sheet relative">
+                {!livePlainText.trim() && (
+                  <div
+                    aria-hidden="true"
+                    className="no-print pointer-events-none select-none absolute inset-x-6 md:inset-x-8 top-6 md:top-8 text-slate-400/60"
+                  >
+                    <div className="text-2xl font-bold mb-2">
+                      {draftTitle && draftTitle !== 'Untitled Collaborative Spec'
+                        ? draftTitle
+                        : 'Untitled Collaborative Spec'}
+                    </div>
+                    <p className="text-sm">
+                      Start typing here, apply rich formatting from the toolbar above, or import a file...
+                    </p>
+                  </div>
+                )}
                 <div
                   ref={editorRef}
                   contentEditable={canEdit}
@@ -1641,7 +1951,7 @@ export default function AjaiaDocsWorkspace() {
                     }
                   }}
                   aria-label="Rich Text Document Editor"
-                  className={`ajaia-editor-canvas ${
+                  className={`ajaia-editor-canvas relative z-10 ${
                     !canEdit ? 'cursor-not-allowed opacity-90' : ''
                   }`}
                 />

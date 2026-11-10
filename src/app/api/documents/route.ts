@@ -28,6 +28,8 @@ export async function POST(req: NextRequest) {
       title?: string;
       contentHtml?: string;
       ownerId?: string;
+      ownerName?: string;
+      ownerEmail?: string;
       versionSummary?: string;
     };
     const ownerId =
@@ -36,6 +38,8 @@ export async function POST(req: NextRequest) {
       title: String(body.title ?? ''),
       contentHtml: body.contentHtml,
       ownerId,
+      ownerName: body.ownerName,
+      ownerEmail: body.ownerEmail,
       versionSummary: body.versionSummary,
     });
     return NextResponse.json({ document: doc }, { status: 201 });

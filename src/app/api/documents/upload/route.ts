@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { addAttachmentToDocument, createDocument } from '@/lib/db';
+import {
+  addAttachmentToDocument,
+  createDocument,
+  removeAttachmentFromDocument,
+} from '@/lib/db';
 import {
   MAX_UPLOAD_BYTES,
   SUPPORTED_EXTENSIONS,
@@ -21,6 +25,8 @@ export async function POST(req: NextRequest) {
     const incomingFiles: IncomingFileItem[] = [];
     let mode = 'new-document';
     let userId = req.headers.get('x-user-id') || 'user-wesam';
+    let userName = '';
+    let userEmail = '';
     let documentId = '';
     let customTitle = '';
 
@@ -47,6 +53,8 @@ export async function POST(req: NextRequest) {
       }
       mode = String(formData.get('mode') || 'new-document');
       userId = String(formData.get('userId') || userId);
+      userName = String(formData.get('userName') || '').trim();
+      userEmail = String(formData.get('userEmail') || '').trim();
       documentId = String(formData.get('documentId') || '');
       customTitle = String(formData.get('title') || '').trim();
     } else {
@@ -57,6 +65,8 @@ export async function POST(req: NextRequest) {
         contentText?: string;
         mode?: string;
         userId?: string;
+        userName?: string;
+        userEmail?: string;
         documentId?: string;
         title?: string;
       };
@@ -72,6 +82,8 @@ export async function POST(req: NextRequest) {
       incomingFiles.push({ fileName, mimeType, fileBuffer });
       mode = String(body.mode || 'new-document');
       userId = String(body.userId || userId);
+      userName = String(body.userName || '').trim();
+      userEmail = String(body.userEmail || '').trim();
       documentId = String(body.documentId || '');
       customTitle = String(body.title || '').trim();
     }
@@ -103,6 +115,8 @@ export async function POST(req: NextRequest) {
         title: customTitle || first.parsed.suggestedTitle,
         contentHtml: combinedHtml,
         ownerId: userId,
+        ownerName: userName || undefined,
+        ownerEmail: userEmail || undefined,
         versionSummary: `Created from uploaded file(s): ${parsedItems.map((p) => p.fileName).join(', ')}`,
       });
       let updatedWithAtt = created;
@@ -156,6 +170,36 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const status = (err as { statusCode?: number })?.statusCode || 400;
     const message = err instanceof Error ? err.message : 'File upload failed';
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const documentId = req.nextUrl.searchParams.get('documentId') || '';
+    const attachmentId = req.nextUrl.searchParams.get('attachmentId') || '';
+    const userId =
+      req.nextUrl.searchParams.get('userId') ||
+      req.headers.get('x-user-id') ||
+      'user-wesam';
+
+    if (!documentId || !attachmentId) {
+      return NextResponse.json(
+        { error: 'documentId and attachmentId are required' },
+        { status: 400 }
+      );
+    }
+
+    const document = await removeAttachmentFromDocument({
+      documentId,
+      userId,
+      attachmentId,
+    });
+
+    return NextResponse.json({ document });
+  } catch (err) {
+    const status = (err as { statusCode?: number })?.statusCode || 400;
+    const message = err instanceof Error ? err.message : 'Failed to remove attachment';
     return NextResponse.json({ error: message }, { status });
   }
 }

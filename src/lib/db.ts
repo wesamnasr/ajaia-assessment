@@ -509,6 +509,8 @@ export async function createDocument(input: {
   title: string;
   contentHtml?: string;
   ownerId: string;
+  ownerName?: string;
+  ownerEmail?: string;
   versionSummary?: string;
 }): Promise<DocumentDetail> {
   const { state } = await loadState();
@@ -517,9 +519,22 @@ export async function createDocument(input: {
     throw Object.assign(new Error('Document title is required'), { statusCode: 400 });
   }
 
-  const owner = state.users.find((u) => u.id === input.ownerId);
-  if (!owner) {
+  const cleanOwnerId = String(input.ownerId ?? '').trim();
+  if (!cleanOwnerId) {
     throw Object.assign(new Error('Valid owner userId is required'), { statusCode: 400 });
+  }
+
+  let owner = state.users.find((u) => u.id === cleanOwnerId);
+  if (!owner) {
+    const palette = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2'];
+    owner = {
+      id: cleanOwnerId,
+      name: String(input.ownerName || 'Workspace Collaborator').trim(),
+      email: String(input.ownerEmail || `${cleanOwnerId}@ajaia.ai`).trim().toLowerCase(),
+      roleTitle: 'Team Collaborator',
+      avatarColor: palette[state.users.length % palette.length],
+    };
+    state.users.push(owner);
   }
 
   const now = new Date().toISOString();
@@ -794,6 +809,33 @@ export async function addAttachmentToDocument(input: {
   } else {
     doc.updatedAt = now;
   }
+
+  await saveState(state);
+  return getDocumentDetailForUser(doc.id, input.userId);
+}
+
+export async function removeAttachmentFromDocument(input: {
+  documentId: string;
+  userId: string;
+  attachmentId: string;
+}): Promise<DocumentDetail> {
+  const { state } = await loadState();
+  const doc = state.documents.find((d) => d.id === input.documentId);
+  if (!doc) {
+    throw Object.assign(new Error('Document not found'), { statusCode: 404 });
+  }
+
+  const role = resolveAccessRole(state, doc, input.userId);
+  if (!role || role === 'viewer') {
+    throw Object.assign(new Error('Only owners and editors can remove attachments from this document'), {
+      statusCode: 403,
+    });
+  }
+
+  state.attachments = state.attachments.filter(
+    (a) => !(a.documentId === doc.id && a.id === input.attachmentId)
+  );
+  doc.updatedAt = new Date().toISOString();
 
   await saveState(state);
   return getDocumentDetailForUser(doc.id, input.userId);
