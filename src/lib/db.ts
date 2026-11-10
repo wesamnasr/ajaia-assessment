@@ -136,15 +136,6 @@ export function buildInitialSeedState(): StoreState {
       createdAt: SEED_TIME_1,
     },
     {
-      id: 'share-2',
-      documentId: 'doc-roadmap',
-      userId: 'user-alex',
-      userName: 'Alex Rivera',
-      userEmail: 'alex.rivera@ajaia.ai',
-      role: 'viewer',
-      createdAt: SEED_TIME_1,
-    },
-    {
       id: 'share-3',
       documentId: 'doc-architecture',
       userId: 'user-wesam',
@@ -154,30 +145,12 @@ export function buildInitialSeedState(): StoreState {
       createdAt: SEED_TIME_2,
     },
     {
-      id: 'share-4',
-      documentId: 'doc-architecture',
-      userId: 'user-alex',
-      userName: 'Alex Rivera',
-      userEmail: 'alex.rivera@ajaia.ai',
-      role: 'viewer',
-      createdAt: SEED_TIME_2,
-    },
-    {
       id: 'share-5',
       documentId: 'doc-compliance',
       userId: 'user-wesam',
       userName: 'Wesam Nasr',
       userEmail: 'wesam@ajaia.ai',
       role: 'viewer',
-      createdAt: SEED_TIME_1,
-    },
-    {
-      id: 'share-6',
-      documentId: 'doc-compliance',
-      userId: 'user-sara',
-      userName: 'Sara Chen',
-      userEmail: 'sara.chen@ajaia.ai',
-      role: 'editor',
       createdAt: SEED_TIME_1,
     },
   ];
@@ -396,16 +369,24 @@ export async function listUsers(): Promise<User[]> {
   return state.users;
 }
 
-export async function createOrGetUser(input: { name: string; email: string; roleTitle?: string }): Promise<User> {
+export async function createOrGetUser(input: {
+  id?: string;
+  name: string;
+  email: string;
+  roleTitle?: string;
+}): Promise<User> {
   const { state } = await loadState();
   const cleanEmail = String(input.email ?? '').trim().toLowerCase();
   const cleanName = String(input.name ?? '').trim();
+  const requestedId = String(input.id ?? '').trim();
 
   if (!cleanEmail || !cleanEmail.includes('@')) {
     throw Object.assign(new Error('A valid email address is required'), { statusCode: 400 });
   }
 
-  const existing = state.users.find((u) => u.email.toLowerCase() === cleanEmail);
+  const existing = state.users.find(
+    (u) => u.email.toLowerCase() === cleanEmail || (requestedId && u.id === requestedId)
+  );
   if (existing) {
     if (cleanName && existing.name !== cleanName) {
       existing.name = cleanName;
@@ -416,7 +397,7 @@ export async function createOrGetUser(input: { name: string; email: string; role
 
   const palette = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2'];
   const newUser: User = {
-    id: `user-${crypto.randomUUID().slice(0, 8)}`,
+    id: requestedId || `user-${crypto.randomUUID().slice(0, 8)}`,
     name: cleanName || cleanEmail.split('@')[0],
     email: cleanEmail,
     roleTitle: String(input.roleTitle || 'Team Collaborator').trim(),

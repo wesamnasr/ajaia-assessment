@@ -5,6 +5,11 @@ export const metadata: Metadata = {
   title: 'Ajaia Docs — AI-Native Collaborative Document Workspace',
   description:
     'Lightweight collaborative rich-text document editor with multi-mode file upload, role-based sharing, version history, and multi-provider AI assistance.',
+  icons: {
+    icon: '/icon.svg',
+    shortcut: '/icon.svg',
+    apple: '/icon.svg',
+  },
 };
 
 export default function RootLayout({

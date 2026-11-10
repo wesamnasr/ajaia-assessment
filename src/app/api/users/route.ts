@@ -10,8 +10,14 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as { name?: string; email?: string; roleTitle?: string };
+    const body = (await req.json()) as {
+      id?: string;
+      name?: string;
+      email?: string;
+      roleTitle?: string;
+    };
     const user = await createOrGetUser({
+      id: body.id ? String(body.id) : undefined,
       name: String(body.name ?? ''),
       email: String(body.email ?? ''),
       roleTitle: body.roleTitle,

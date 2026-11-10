@@ -67,6 +67,8 @@ interface HealthStatus {
 export default function AjaiaDocsWorkspace() {
   const [users, setUsers] = useState<User[]>([]);
   const [activeUserId, setActiveUserId] = useState<string>('user-wesam');
+  const [userHydrated, setUserHydrated] = useState<boolean>(false);
+  const refreshSeqRef = useRef<number>(0);
   const [ownedDocs, setOwnedDocs] = useState<DocumentSummaryItem[]>([]);
   const [sharedDocs, setSharedDocs] = useState<DocumentSummaryItem[]>([]);
   const [activeDoc, setActiveDoc] = useState<DocumentDetail | null>(null);
@@ -92,6 +94,8 @@ export default function AjaiaDocsWorkspace() {
   const [showShareModal, setShowShareModal] = useState<boolean>(false);
   const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
   const [showNewUserModal, setShowNewUserModal] = useState<boolean>(false);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   // Share form state
   const [shareTarget, setShareTarget] = useState<string>('');
@@ -101,9 +105,10 @@ export default function AjaiaDocsWorkspace() {
 
   // Upload form state
   const [uploadMode, setUploadMode] = useState<UploadMode>('new-document');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [customUploadTitle, setCustomUploadTitle] = useState<string>('');
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [previewAttachment, setPreviewAttachment] = useState<DocumentAttachment | null>(null);
 
   // New user form state
   const [newUserName, setNewUserName] = useState<string>('');
@@ -176,6 +181,7 @@ export default function AjaiaDocsWorkspace() {
 
   const refreshWorkspace = useCallback(
     async (userId: string, preferredDocId?: string) => {
+      const seq = ++refreshSeqRef.current;
       try {
         const [healthRes, usersRes, docsRes] = await Promise.all([
           fetch('/api/health', { cache: 'no-store' }),
@@ -183,15 +189,57 @@ export default function AjaiaDocsWorkspace() {
           fetch(`/api/documents?userId=${encodeURIComponent(userId)}`, { cache: 'no-store' }),
         ]);
 
+        if (seq !== refreshSeqRef.current) return;
+
         if (healthRes.ok) {
           setHealth(await healthRes.json());
         }
         if (usersRes.ok) {
           const uData = await usersRes.json();
-          setUsers(Array.isArray(uData.users) ? uData.users : []);
+          const serverUsers: User[] = Array.isArray(uData.users) ? uData.users : [];
+
+          // Ensure any locally registered custom users are also persisted on the server
+          let mergedUsers = [...serverUsers];
+          try {
+            const rawSavedUsers = window.localStorage.getItem('ajaia_custom_users');
+            if (rawSavedUsers) {
+              const savedCustomUsers = JSON.parse(rawSavedUsers) as User[];
+              if (Array.isArray(savedCustomUsers)) {
+                for (const cu of savedCustomUsers) {
+                  if (
+                    cu &&
+                    cu.id &&
+                    cu.email &&
+                    !mergedUsers.some(
+                      (su) => su.id === cu.id || su.email.toLowerCase() === cu.email.toLowerCase()
+                    )
+                  ) {
+                    mergedUsers.push(cu);
+                    fetch('/api/users', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        id: cu.id,
+                        name: cu.name,
+                        email: cu.email,
+                        roleTitle: cu.roleTitle,
+                      }),
+                    }).catch(() => {});
+                  }
+                }
+              }
+            }
+          } catch {
+            // Ignore local storage parse errors
+          }
+
+          if (seq === refreshSeqRef.current) {
+            setUsers(mergedUsers);
+          }
         }
         if (docsRes.ok) {
           const dData = await docsRes.json();
+          if (seq !== refreshSeqRef.current) return;
           const owned: DocumentSummaryItem[] = Array.isArray(dData.owned) ? dData.owned : [];
           const shared: DocumentSummaryItem[] = Array.isArray(dData.shared) ? dData.shared : [];
           setOwnedDocs(owned);
@@ -206,21 +254,20 @@ export default function AjaiaDocsWorkspace() {
           if (targetId) {
             await fetchDocumentDetail(targetId, userId, true);
           } else {
+            loadedDocIdRef.current = '';
             setActiveDoc(null);
             setDraftTitle('');
             syncEditorDom('');
           }
         }
       } catch {
-        showNotification('Failed to initialize workspace data', 'error');
+        if (seq === refreshSeqRef.current) {
+          showNotification('Failed to initialize workspace data', 'error');
+        }
       }
     },
     [fetchDocumentDetail, showNotification, syncEditorDom]
   );
-
-  useEffect(() => {
-    refreshWorkspace(activeUserId);
-  }, [activeUserId, refreshWorkspace]);
 
   useEffect(() => {
     try {
@@ -228,10 +275,33 @@ export default function AjaiaDocsWorkspace() {
       if (saved === 'light' || saved === 'dark') {
         setTheme(saved);
       }
+      const savedUser =
+        window.localStorage.getItem('ajaia_active_user') ||
+        window.sessionStorage.getItem('ajaia_active_user');
+      if (savedUser) {
+        setActiveUserId(savedUser);
+      } else {
+        setShowNewUserModal(true);
+      }
     } catch {
       // Ignore storage access errors
+    } finally {
+      setUserHydrated(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (!userHydrated) return;
+    loadedDocIdRef.current = '';
+    setActiveDoc(null);
+    setOwnedDocs([]);
+    setSharedDocs([]);
+    setDraftTitle('');
+    setDraftHtml('');
+    setAiOutput(null);
+    setCommentInput('');
+    refreshWorkspace(activeUserId);
+  }, [activeUserId, userHydrated, refreshWorkspace]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('theme-light', theme === 'light');
@@ -384,6 +454,7 @@ export default function AjaiaDocsWorkspace() {
 
   const handleDeleteDocument = async () => {
     if (!activeDoc || !isOwner) return;
+    setIsDeleting(true);
     try {
       const res = await fetch(
         `/api/documents/${encodeURIComponent(activeDoc.id)}?userId=${encodeURIComponent(activeUserId)}`,
@@ -391,10 +462,14 @@ export default function AjaiaDocsWorkspace() {
       );
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || 'Failed to delete document');
-      showNotification(`Deleted "${activeDoc.title}"`, 'info');
+      const deletedTitle = activeDoc.title;
+      setShowDeleteConfirmModal(false);
+      showNotification(`Deleted "${deletedTitle}"`, 'info');
       await refreshWorkspace(activeUserId);
     } catch (err) {
       showNotification(err instanceof Error ? err.message : 'Delete failed', 'error');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -491,17 +566,53 @@ export default function AjaiaDocsWorkspace() {
     }
   };
 
+  const syncUpdatedDocInList = useCallback((doc: DocumentDetail) => {
+    const summaryItem: DocumentSummaryItem = {
+      id: doc.id,
+      title: doc.title,
+      excerpt: (doc.plainText || stripHtmlToPlainText(doc.contentHtml)).slice(0, 140) || 'Empty document',
+      ownerId: doc.ownerId,
+      ownerName: doc.ownerName,
+      ownerEmail: doc.ownerEmail,
+      accessRole: doc.accessRole,
+      shareCount: doc.shares.length,
+      attachmentCount: doc.attachments.length,
+      commentCount: doc.comments.filter((c) => !c.resolved).length,
+      wordCount: countWords(doc.plainText || stripHtmlToPlainText(doc.contentHtml)),
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
+    };
+    if (doc.accessRole === 'owner') {
+      setOwnedDocs((prev) => {
+        const exists = prev.some((d) => d.id === doc.id);
+        return exists
+          ? prev.map((d) => (d.id === doc.id ? summaryItem : d))
+          : [summaryItem, ...prev];
+      });
+    } else {
+      setSharedDocs((prev) => {
+        const exists = prev.some((d) => d.id === doc.id);
+        return exists
+          ? prev.map((d) => (d.id === doc.id ? summaryItem : d))
+          : [summaryItem, ...prev];
+      });
+    }
+  }, []);
+
   const handleFileUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFile) {
-      showNotification('Please choose a file (.txt, .md, .docx, .html, .csv, .json)', 'error');
+    if (selectedFiles.length === 0) {
+      showNotification('Please choose at least one file (.txt, .md, .docx, .html, .csv, .json)', 'error');
       return;
     }
 
     setIsUploading(true);
     try {
       const formData = new FormData();
-      formData.append('file', selectedFile);
+      for (const file of selectedFiles) {
+        formData.append('files', file);
+      }
+      formData.append('file', selectedFiles[0]);
       formData.append('mode', uploadMode);
       formData.append('userId', activeUserId);
       if (activeDoc?.id) {
@@ -519,17 +630,22 @@ export default function AjaiaDocsWorkspace() {
       if (!res.ok) throw new Error(payload.error || 'File upload failed');
 
       const resultingDoc: DocumentDetail = payload.document;
+      const uploadedNames = selectedFiles.map((f) => f.name).join(', ');
       setShowUploadModal(false);
-      setSelectedFile(null);
+      setSelectedFiles([]);
       setCustomUploadTitle('');
-      await refreshWorkspace(activeUserId, resultingDoc.id);
+      loadedDocIdRef.current = resultingDoc.id;
+      setActiveDoc(resultingDoc);
+      setDraftTitle(resultingDoc.title);
+      setIsDirty(false);
       syncEditorDom(resultingDoc.contentHtml);
+      syncUpdatedDocInList(resultingDoc);
       showNotification(
         uploadMode === 'new-document'
-          ? `Created new editable document "${resultingDoc.title}" from ${selectedFile.name}`
+          ? `Created new editable document "${resultingDoc.title}" from ${uploadedNames}`
           : uploadMode === 'import-into-doc'
-            ? `Imported content from ${selectedFile.name} into "${resultingDoc.title}"`
-            : `Attached ${selectedFile.name} to "${resultingDoc.title}"`,
+            ? `Imported content from ${uploadedNames} into "${resultingDoc.title}"`
+            : `Attached ${selectedFiles.length} file(s) (${uploadedNames}) to "${resultingDoc.title}"`,
         'success'
       );
     } catch (err) {
@@ -651,12 +767,33 @@ export default function AjaiaDocsWorkspace() {
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || 'Could not create user');
       const createdUser: User = payload.user;
+      setUsers((prev) => {
+        const exists = prev.some((u) => u.id === createdUser.id);
+        return exists ? prev.map((u) => (u.id === createdUser.id ? createdUser : u)) : [...prev, createdUser];
+      });
       setShowNewUserModal(false);
       setNewUserName('');
       setNewUserEmail('');
       setNewUserRoleTitle('');
+      try {
+        window.localStorage.setItem('ajaia_active_user', createdUser.id);
+        window.sessionStorage.setItem('ajaia_active_user', createdUser.id);
+        const rawSaved = window.localStorage.getItem('ajaia_custom_users');
+        const parsedSaved: User[] = rawSaved ? JSON.parse(rawSaved) : [];
+        const nextSaved = Array.isArray(parsedSaved)
+          ? [
+              ...parsedSaved.filter(
+                (u) => u.id !== createdUser.id && u.email.toLowerCase() !== createdUser.email.toLowerCase()
+              ),
+              createdUser,
+            ]
+          : [createdUser];
+        window.localStorage.setItem('ajaia_custom_users', JSON.stringify(nextSaved));
+      } catch {
+        // Ignore storage errors
+      }
       setActiveUserId(createdUser.id);
-      showNotification(`Switched to account: ${createdUser.name} (${createdUser.email})`, 'success');
+      showNotification(`Signed in as ${createdUser.name} (${createdUser.email})`, 'success');
     } catch (err) {
       showNotification(err instanceof Error ? err.message : 'Failed to create user', 'error');
     }
@@ -686,10 +823,11 @@ export default function AjaiaDocsWorkspace() {
       return;
     }
     const currentHtml = editorRef.current ? editorRef.current.innerHTML : draftHtml;
+    const mdBody = htmlToMarkdown(currentHtml).trim();
     const content =
       format === 'md'
-        ? `# ${draftTitle || activeDoc.title}\n\n${htmlToMarkdown(currentHtml)}`
-        : `${draftTitle || activeDoc.title}\n${'='.repeat(40)}\n\n${stripHtmlToPlainText(currentHtml)}`;
+        ? mdBody
+        : stripHtmlToPlainText(currentHtml).trim();
     const blob = new Blob([content], {
       type: format === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8',
     });
@@ -756,42 +894,29 @@ export default function AjaiaDocsWorkspace() {
             </div>
           </div>
 
-          {/* Instant User Switcher Dropdown (Seeded Accounts + Custom Login) */}
-          <div className="flex items-center gap-2 bg-slate-950/90 border border-slate-800 rounded-lg px-2.5 py-1.5">
-            <Users className="h-4 w-4 text-slate-400 shrink-0" />
-            <label htmlFor="active-user-select" className="text-xs text-slate-400 hidden sm:inline">
-              Active User:
-            </label>
-            <div className="flex items-center gap-2">
+          {/* Active User Badge + Sign In / Switch Account Modal Trigger */}
+          <div className="flex items-center gap-2.5 bg-slate-950/90 border border-slate-800 rounded-lg px-3 py-1.5">
+            <div className="flex items-center gap-2 text-xs">
+              <span
+                className="h-2.5 w-2.5 rounded-full shrink-0"
+                style={{ backgroundColor: activeUser?.avatarColor || '#2563eb' }}
+              />
+              <span className="font-semibold text-slate-100">
+                {activeUser ? activeUser.name : 'Loading...'}
+              </span>
               {activeUser && (
-                <span
-                  className="h-2.5 w-2.5 rounded-full shrink-0"
-                  style={{ backgroundColor: activeUser.avatarColor }}
-                />
+                <span className="text-slate-400 hidden md:inline">({activeUser.email})</span>
               )}
-              <select
-                id="active-user-select"
-                aria-label="Select Active User Account"
-                value={activeUserId}
-                onChange={(e) => setActiveUserId(e.target.value)}
-                className="bg-slate-900 text-slate-100 text-xs font-medium border border-slate-700 rounded-md px-2.5 py-1 focus:outline-none focus:border-blue-500 cursor-pointer"
-              >
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} ({u.email}) — {u.roleTitle}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => setShowNewUserModal(true)}
-                className="text-xs px-2 py-1 rounded-md text-blue-400 hover:bg-blue-500/10 border border-blue-500/20 flex items-center gap-1 shrink-0"
-                title="Add or switch to another user account"
-              >
-                <UserPlus className="h-3.5 w-3.5" />
-                <span className="hidden md:inline">+ User</span>
-              </button>
             </div>
+            <button
+              type="button"
+              onClick={() => setShowNewUserModal(true)}
+              className="text-xs px-2.5 py-1 rounded-md text-blue-400 hover:bg-blue-500/10 border border-blue-500/20 flex items-center gap-1.5 shrink-0 font-medium transition"
+              title="Sign in as a new user or switch account"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              <span>Switch / Sign In</span>
+            </button>
           </div>
 
           {/* Top Action Toolbar */}
@@ -1163,18 +1288,45 @@ export default function AjaiaDocsWorkspace() {
           {!activeDoc ? (
             <div className="flex-1 rounded-xl border border-slate-800 bg-slate-900/40 p-12 flex flex-col items-center justify-center text-center">
               <FileText className="h-12 w-12 text-slate-600 mb-3" />
-              <h2 className="text-lg font-semibold text-slate-200">No Document Selected</h2>
-              <p className="text-xs text-slate-400 max-w-md mt-1 mb-4">
-                Select a document from the left sidebar, create a new collaborative document, or upload a{' '}
-                <code>.md</code>, <code>.txt</code>, or <code>.docx</code> file.
+              <h2 className="text-lg font-semibold text-slate-200">
+                {ownedDocs.length === 0 && sharedDocs.length === 0
+                  ? `Welcome, ${activeUser?.name || 'Collaborator'} — Your Workspace is Empty`
+                  : 'No Document Selected'}
+              </h2>
+              <p className="text-xs text-slate-400 max-w-md mt-1 mb-5">
+                {ownedDocs.length === 0 && sharedDocs.length === 0 ? (
+                  <>
+                    You currently have <strong>0 owned documents</strong> and{' '}
+                    <strong>0 documents shared</strong> with{' '}
+                    <code>{activeUser?.email || 'your account'}</code>. Create your first private
+                    document below, upload a file, or ask a document owner to share a specific file
+                    with your email.
+                  </>
+                ) : (
+                  <>
+                    Select a document from the left sidebar, create a new collaborative document, or
+                    upload a <code>.md</code>, <code>.txt</code>, or <code>.docx</code> file.
+                  </>
+                )}
               </p>
-              <button
-                type="button"
-                onClick={handleCreateNewDocument}
-                className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-4 py-2 rounded-lg"
-              >
-                Create First Document
-              </button>
+              <div className="flex flex-wrap items-center justify-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleCreateNewDocument}
+                  className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Create First Document
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowUploadModal(true)}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5"
+                >
+                  <FileUp className="h-3.5 w-3.5 text-blue-400" />
+                  Upload File (.md, .txt, .docx)
+                </button>
+              </div>
             </div>
           ) : (
             <>
@@ -1190,7 +1342,15 @@ export default function AjaiaDocsWorkspace() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setActiveUserId(activeDoc.ownerId)}
+                    onClick={() => {
+                      try {
+                        window.localStorage.setItem('ajaia_active_user', activeDoc.ownerId);
+                        window.sessionStorage.setItem('ajaia_active_user', activeDoc.ownerId);
+                      } catch {
+                        // Ignore storage errors
+                      }
+                      setActiveUserId(activeDoc.ownerId);
+                    }}
                     className="shrink-0 px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 font-medium border border-amber-500/40"
                   >
                     Switch to Owner ({activeDoc.ownerName})
@@ -1198,8 +1358,8 @@ export default function AjaiaDocsWorkspace() {
                 </div>
               )}
 
-              {/* Document Title & Metadata Header */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-3 print-only-sheet">
+              {/* Document Title & Metadata Header (Excluded from Print/PDF so only document content prints) */}
+              <div className="no-print rounded-xl border border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span
@@ -1244,11 +1404,12 @@ export default function AjaiaDocsWorkspace() {
                     {isOwner && (
                       <button
                         type="button"
-                        onClick={handleDeleteDocument}
-                        className="text-xs px-2 py-1 rounded-md bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 flex items-center gap-1 transition"
+                        onClick={() => setShowDeleteConfirmModal(true)}
+                        className="text-xs px-2.5 py-1 rounded-md bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 flex items-center gap-1 transition"
                         title="Delete Document (Owner Only)"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
+                        <span>Delete</span>
                       </button>
                     )}
                   </div>
@@ -1268,6 +1429,64 @@ export default function AjaiaDocsWorkspace() {
                     aria-label="Document Title"
                     className="w-full bg-transparent text-xl md:text-2xl font-bold text-white border-b border-transparent focus:border-blue-500 focus:outline-none pb-1 disabled:opacity-80"
                   />
+                </div>
+
+                {/* Top Attached Files Bar (Always Visible Above Editor) */}
+                <div className="no-print flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80 text-xs">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-semibold text-slate-300 flex items-center gap-1 mr-1">
+                      <Paperclip className="h-3.5 w-3.5 text-blue-400" />
+                      Attachments ({activeDoc.attachments.length}):
+                    </span>
+                    {activeDoc.attachments.length === 0 ? (
+                      <span className="text-slate-500 italic">No files attached yet</span>
+                    ) : (
+                      activeDoc.attachments.map((att) => (
+                        <div
+                          key={att.id}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-200"
+                        >
+                          <FileText className="h-3 w-3 text-blue-400 shrink-0" />
+                          <span className="font-medium max-w-[180px] truncate" title={att.fileName}>
+                            {att.fileName}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            ({Math.max(0.1, att.sizeBytes / 1024).toFixed(1)} KB)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setPreviewAttachment(att)}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 text-[10px] font-medium"
+                            title="Preview file content"
+                          >
+                            <Eye className="h-3 w-3" />
+                            <span>Preview</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadAttachment(att)}
+                            className="p-0.5 rounded hover:bg-slate-800 text-slate-300"
+                            title="Download attached file"
+                          >
+                            <Download className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUploadMode('attach-only');
+                        setShowUploadModal(true);
+                      }}
+                      className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border border-blue-500/30 font-semibold transition"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      <span>+ Attach File(s)</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Rich-Text Formatting Toolbar */}
@@ -1427,69 +1646,14 @@ export default function AjaiaDocsWorkspace() {
                   }`}
                 />
               </div>
-
-              {/* Associated Document Attachments Bar */}
-              <div className="no-print rounded-xl border border-slate-800 bg-slate-900/40 p-3.5">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                    <Paperclip className="h-3.5 w-3.5 text-blue-400" />
-                    Associated Files &amp; Attachments ({activeDoc.attachments.length})
-                  </span>
-                  {canEdit && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUploadMode('attach-only');
-                        setShowUploadModal(true);
-                      }}
-                      className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      Attach or Import File
-                    </button>
-                  )}
-                </div>
-
-                {activeDoc.attachments.length === 0 ? (
-                  <p className="text-xs text-slate-500">
-                    No files attached to this document yet. Supported upload types: <code>.txt</code>,{' '}
-                    <code>.md</code>, <code>.docx</code>, <code>.html</code>, <code>.csv</code>,{' '}
-                    <code>.json</code> (up to 2 MB).
-                  </p>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {activeDoc.attachments.map((att) => (
-                      <div
-                        key={att.id}
-                        className="rounded-lg bg-slate-950 border border-slate-800 p-2.5 flex items-center justify-between gap-2 text-xs"
-                      >
-                        <div className="min-w-0">
-                          <div className="font-medium text-slate-200 truncate">{att.fileName}</div>
-                          <div className="text-[10px] text-slate-500">
-                            {(att.sizeBytes / 1024).toFixed(1)} KB • Uploaded by {att.uploadedByName}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleDownloadAttachment(att)}
-                          className="shrink-0 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center gap-1"
-                          title="Download Attachment"
-                        >
-                          <Download className="h-3 w-3" />
-                          <span>Download</span>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
             </>
           )}
         </main>
 
-        {/* RIGHT SIDEBAR: AI Writing Assistant, Comments, and Version History (Collapsible + Resizable) */}
-        {rightCollapsed ? (
-          <aside className="no-print border-t lg:border-t-0 lg:border-l border-slate-800 bg-slate-900/60 p-2 flex lg:flex-col items-center justify-between lg:justify-start gap-3 shrink-0 lg:w-12">
+        {/* RIGHT SIDEBAR: AI Writing Assistant, Comments, and Version History (Only shown when a document is open) */}
+        {activeDoc &&
+          (rightCollapsed ? (
+            <aside className="no-print border-t lg:border-t-0 lg:border-l border-slate-800 bg-slate-900/60 p-2 flex lg:flex-col items-center justify-between lg:justify-start gap-3 shrink-0 lg:w-12">
             <button
               type="button"
               onClick={() => setRightCollapsed(false)}
@@ -1787,7 +1951,7 @@ export default function AjaiaDocsWorkspace() {
             </div>
           )}
           </aside>
-        )}
+        ))}
       </div>
 
       {/* MODAL 1: Share Document & Manage Permissions */}
@@ -2090,15 +2254,66 @@ export default function AjaiaDocsWorkspace() {
 
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                  2. Select File (.txt, .md, .docx, .html, .csv, .json):
+                  2. Select One or Multiple Files (.txt, .md, .docx, .html, .csv, .json):
                 </label>
                 <input
                   type="file"
+                  multiple
                   accept=".txt,.md,.markdown,.docx,.html,.htm,.csv,.json"
-                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                  required
+                  onChange={(e) => {
+                    const picked = Array.from(e.target.files || []);
+                    if (picked.length > 0) {
+                      setSelectedFiles((prev) => {
+                        const existingKeys = new Set(prev.map((f) => `${f.name}-${f.size}`));
+                        const uniqueNew = picked.filter((f) => !existingKeys.has(`${f.name}-${f.size}`));
+                        return [...prev, ...uniqueNew];
+                      });
+                    }
+                    e.target.value = '';
+                  }}
                   className="w-full text-xs text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-500 bg-slate-950 border border-slate-800 rounded-lg p-2"
                 />
+                {selectedFiles.length > 0 && (
+                  <div className="mt-2.5 rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-xs">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-semibold text-slate-200">
+                        Queued Files ({selectedFiles.length}):
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedFiles([])}
+                        className="text-[11px] text-red-400 hover:underline"
+                      >
+                        Clear All
+                      </button>
+                    </div>
+                    <div className="flex flex-col gap-1 max-h-32 overflow-y-auto">
+                      {selectedFiles.map((f, idx) => (
+                        <div
+                          key={`${f.name}-${idx}`}
+                          className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded px-2.5 py-1"
+                        >
+                          <span className="truncate text-slate-200">
+                            {f.name}{' '}
+                            <span className="text-[10px] text-slate-400">
+                              ({Math.max(0.1, f.size / 1024).toFixed(1)} KB)
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelectedFiles((prev) => prev.filter((_, i) => i !== idx))
+                            }
+                            className="text-slate-400 hover:text-red-400 p-0.5"
+                            title="Remove file"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {uploadMode === 'new-document' && (
@@ -2137,15 +2352,20 @@ export default function AjaiaDocsWorkspace() {
         </div>
       )}
 
-      {/* MODAL 3: Add / Switch User Account */}
+      {/* MODAL 3: Welcome / Sign In as New User or Select Demo Account */}
       {showNewUserModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-5 shadow-2xl">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-5 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <UserPlus className="h-4 w-4 text-blue-400" />
-                Switch or Create Collaborator Account
-              </h3>
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <UserPlus className="h-4 w-4 text-blue-400" />
+                  Welcome to Ajaia Docs — Choose Account
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Sign in as a new user for a clean, empty workspace, or select a seeded demo account.
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowNewUserModal(false)}
@@ -2155,55 +2375,228 @@ export default function AjaiaDocsWorkspace() {
               </button>
             </div>
 
+            {/* Section 1: Sign In / Register as New User (Empty Workspace) */}
             <form onSubmit={handleCreateUserSubmit} className="mt-4 flex flex-col gap-3 text-xs">
-              <div>
-                <label className="block text-slate-300 mb-1">Full Name *</label>
-                <input
-                  type="text"
-                  value={newUserName}
-                  onChange={(e) => setNewUserName(e.target.value)}
-                  placeholder="Jordan Lee"
-                  required
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
-                />
+              <div className="font-semibold text-slate-200 flex items-center justify-between">
+                <span>1. Start Fresh as a New User (Empty Workspace)</span>
+                <span className="text-[10px] px-2 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                  0 Initial Documents
+                </span>
               </div>
-              <div>
-                <label className="block text-slate-300 mb-1">Email Address *</label>
-                <input
-                  type="email"
-                  value={newUserEmail}
-                  onChange={(e) => setNewUserEmail(e.target.value)}
-                  placeholder="jordan@ajaia.ai"
-                  required
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-slate-300 mb-1">Full Name *</label>
+                  <input
+                    type="text"
+                    value={newUserName}
+                    onChange={(e) => setNewUserName(e.target.value)}
+                    placeholder="Jordan Lee"
+                    required
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 mb-1">Email Address *</label>
+                  <input
+                    type="email"
+                    value={newUserEmail}
+                    onChange={(e) => setNewUserEmail(e.target.value)}
+                    placeholder="jordan@ajaia.ai"
+                    required
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-slate-300 mb-1">Role / Title</label>
+              <div className="flex items-center justify-between gap-2">
                 <input
                   type="text"
                   value={newUserRoleTitle}
                   onChange={(e) => setNewUserRoleTitle(e.target.value)}
-                  placeholder="Engineering Reviewer"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
+                  placeholder="Role / Title (optional, e.g. Product Manager)"
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
                 />
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowNewUserModal(false)}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300"
-                >
-                  Cancel
-                </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold"
+                  className="shrink-0 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold"
                 >
-                  Switch to Account
+                  Enter Empty Workspace
                 </button>
               </div>
             </form>
+
+            {/* Section 2: Quick Evaluator Demo Accounts */}
+            <div className="mt-5 pt-4 border-t border-slate-800 text-xs">
+              <div className="font-semibold text-slate-200 mb-2">
+                2. Or Quick-Switch to a Seeded Evaluator Account:
+              </div>
+              <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
+                {users.map((u) => {
+                  const isCurrent = u.id === activeUserId;
+                  return (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => {
+                        try {
+                          window.localStorage.setItem('ajaia_active_user', u.id);
+                          window.sessionStorage.setItem('ajaia_active_user', u.id);
+                        } catch {
+                          // Ignore storage errors
+                        }
+                        setActiveUserId(u.id);
+                        setShowNewUserModal(false);
+                        showNotification(`Active account: ${u.name} (${u.email})`, 'info');
+                      }}
+                      className={`w-full text-left px-3 py-2 rounded-lg border flex items-center justify-between transition ${
+                        isCurrent
+                          ? 'bg-blue-600/15 border-blue-500/60 text-white'
+                          : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: u.avatarColor }}
+                        />
+                        <div>
+                          <div className="font-semibold">
+                            {u.name} <span className="font-normal text-slate-400">({u.email})</span>
+                          </div>
+                          <div className="text-[11px] text-slate-400">{u.roleTitle}</div>
+                        </div>
+                      </div>
+                      <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-slate-800 text-slate-200">
+                        {isCurrent ? 'Current' : 'Select'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: Attachment Content Preview & Insert */}
+      {previewAttachment && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-xl w-full p-5 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Paperclip className="h-4 w-4 text-blue-400" />
+                  {previewAttachment.fileName}
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {(previewAttachment.sizeBytes / 1024).toFixed(1)} KB • Uploaded by{' '}
+                  {previewAttachment.uploadedByName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewAttachment(null)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-3 rounded-lg bg-slate-950 border border-slate-800 p-3 max-h-72 overflow-y-auto text-xs text-slate-200 whitespace-pre-wrap font-mono">
+              {previewAttachment.extractedText || 'No text preview available for this attachment.'}
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              {canEdit && previewAttachment.extractedText && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const currentHtml = editorRef.current ? editorRef.current.innerHTML : draftHtml;
+                    const escaped = previewAttachment.extractedText
+                      .replace(/&/g, '&amp;')
+                      .replace(/</g, '&lt;')
+                      .replace(/>/g, '&gt;');
+                    const appended = `${currentHtml}\n<hr/><h3>Imported from ${previewAttachment.fileName}</h3><pre>${escaped}</pre>`;
+                    syncEditorDom(appended);
+                    setIsDirty(true);
+                    setPreviewAttachment(null);
+                    showNotification(
+                      `Inserted "${previewAttachment.fileName}" content into editor.`,
+                      'success'
+                    );
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
+                >
+                  + Insert Into Document
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => handleDownloadAttachment(previewAttachment)}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Download File
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewAttachment(null)}
+                className="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 text-xs"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: Confirm Document Deletion */}
+      {showDeleteConfirmModal && activeDoc && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-5 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Trash2 className="h-4 w-4 text-red-400" />
+                Confirm Document Deletion
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirmModal(false)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 text-xs text-slate-300 space-y-2">
+              <p>
+                Are you sure you want to permanently delete{' '}
+                <strong className="text-white">&ldquo;{activeDoc.title}&rdquo;</strong>?
+              </p>
+              <p className="text-slate-400">
+                This action will remove the document, its {activeDoc.attachments.length} attachment(s),{' '}
+                {activeDoc.shares.length} collaborator share(s), and version history. This cannot be undone.
+              </p>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2 text-xs">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setShowDeleteConfirmModal(false)}
+                className="px-3.5 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleDeleteDocument}
+                className="px-4 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold flex items-center gap-1.5 transition"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>{isDeleting ? 'Deleting...' : 'Confirm Delete'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

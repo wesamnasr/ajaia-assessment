@@ -218,9 +218,15 @@
 }
 
 @media print {
+  @page {
+    margin: 0;
+  }
+  html,
   body {
     background: #ffffff !important;
     color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
   .no-print {
     display: none !important;
@@ -230,6 +236,11 @@
     border: none !important;
     background: #ffffff !important;
     color: #000000 !important;
+    padding: 18mm 20mm !important;
+    margin: 0 !important;
+  }
+  .ajaia-editor-canvas {
+    min-height: 0 !important;
   }
   .ajaia-editor-canvas,
   .ajaia-editor-canvas h1,
