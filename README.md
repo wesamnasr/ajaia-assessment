@@ -1,6 +1,8 @@
 # Ajaia Docs — AI-Native Collaborative Document Workspace
 
 **Author:** Wesam Nasr (`wesamnasr999@gmail.com`)  
+**Live Deployed URL:** https://ajaia-docs-pearl-seven.vercel.app  
+**GitHub Repository:** https://github.com/wesamnasr/ajaia-assessment  
 **Stack:** Next.js 14 (App Router), TypeScript, Tailwind CSS, Dual-Storage Engine (Cloud Postgres + Automatic Local Persistence), Multi-Provider LLM Pipeline (Google Gemini / OpenAI + Deterministic Fallback)
 
 ---

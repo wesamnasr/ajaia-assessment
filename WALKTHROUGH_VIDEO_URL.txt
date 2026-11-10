@@ -1,5 +1,6 @@
 LIVE_HOSTED_APP_URL: https://ajaia-docs-pearl-seven.vercel.app
-WALKTHROUGH_VIDEO_URL: [PASTE_YOUR_LOOM_OR_YOUTUBE_LINK_HERE]
+GITHUB_REPOSITORY_URL: https://github.com/wesamnasr/ajaia-assessment
+WALKTHROUGH_VIDEO_FILE: Ajaia-Docs-Walkthrough.mp4 (included directly in this Google Drive folder with full voiceover)
 
 ================================================================================
 3–5 MINUTE WALKTHROUGH VIDEO SCRIPT (READ-ALONG GUIDE)

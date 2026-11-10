@@ -8,8 +8,8 @@
 ## 1. Submission Links & Package Manifest
 
 - **Live Deployed Product URL:** https://ajaia-docs-pearl-seven.vercel.app
-- **Google Drive Deliverable Folder:** `[GOOGLE_DRIVE_FOLDER_LINK_HERE]`
-- **Walkthrough Video URL (3–5 min):** `[WALKTHROUGH_VIDEO_URL_HERE]`
+- **GitHub Repository URL:** https://github.com/wesamnasr/ajaia-assessment
+- **Walkthrough Video File (Included in Drive Folder):** `Ajaia-Docs-Walkthrough.mp4` (Full Walkthrough with Voiceover) & `screen-silent.webm`
 
 ### Included Files in Deliverable Package:
 1. `src/` — Full Next.js 14 (App Router) + TypeScript frontend, backend API routes, dual-storage engine (`src/lib/db.ts`), multi-format file parser (`src/lib/file-parser.ts`), and multi-provider AI client (`src/lib/llm-client.ts`).

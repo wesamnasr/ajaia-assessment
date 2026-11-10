@@ -1,0 +1,31 @@
+================================================================================
+AJAIA DOCS — SUBMISSION LINKS, GITHUB REPOSITORY & ACCESS PERMISSIONS
+Candidate: Wesam Nasr (wesamnasr999@gmail.com)
+================================================================================
+
+1. LIVE DEPLOYED PRODUCT URL (Vercel Production):
+   https://ajaia-docs-pearl-seven.vercel.app
+
+2. GITHUB REPOSITORY URL (Full Source Code, Commit History & Automated Tests):
+   https://github.com/wesamnasr/ajaia-assessment
+
+3. WALKTHROUGH VIDEO WITH FULL VOICEOVER (3 Minutes):
+   File in this Google Drive folder: Ajaia-Docs-Walkthrough.mp4
+   (Note: The full voiceover version Ajaia-Docs-Walkthrough.mp4 is provided right here in this Google Drive folder alongside the silent screen recording.)
+
+4. SEEDED EVALUATOR ACCOUNTS (Instant Role & Permission Testing — No Password Required):
+   Use the "Switch / Sign In" button in the top navigation bar of the live app:
+   - Owner Account:  Wesam Nasr  (wesam@ajaia.ai)       -> Full Owner access on "Ajaia Q4 AI Product Strategy"
+   - Editor Account: Sara Chen   (sara.chen@ajaia.ai)   -> Editor (Read/Write) access on shared documents
+   - Viewer Account: Alex Rivera (alex.rivera@ajaia.ai) -> Viewer (Read-Only, HTTP 403 enforced on edits)
+   - Or click "Start Fresh as a New User" in the Switch / Sign In modal to test a brand-new empty workspace.
+
+5. INCLUDED DELIVERABLES IN THIS GOOGLE DRIVE FOLDER:
+   - Ajaia-Docs-Walkthrough.mp4        (Full Walkthrough Video with Voiceover)
+   - ajaia-docs-source-code.zip        (Complete Next.js 14 + TypeScript Source Code & Tests)
+   - SUBMISSION.md                     (Complete Submission Manifest & Verification Guide)
+   - README.md                         (Local Setup, API Reference & Feature Documentation)
+   - ARCHITECTURE.md                   (System Design, Tradeoffs & Next Production Steps)
+   - AI_WORKFLOW.md                    (AI Usage, Human Engineering Refinements & Verification)
+   - WALKTHROUGH_VIDEO_URL.txt         (Video Outline & Links)
+================================================================================
