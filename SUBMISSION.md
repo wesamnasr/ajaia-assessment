@@ -7,7 +7,7 @@
 
 ## 1. Submission Links & Package Manifest
 
-- **Live Deployed Product URL:** `[LIVE_DEPLOYMENT_URL_HERE]`
+- **Live Deployed Product URL:** https://ajaia-docs-pearl-seven.vercel.app
 - **Google Drive Deliverable Folder:** `[GOOGLE_DRIVE_FOLDER_LINK_HERE]`
 - **Walkthrough Video URL (3–5 min):** `[WALKTHROUGH_VIDEO_URL_HERE]`
 

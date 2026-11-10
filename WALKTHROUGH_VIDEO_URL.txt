@@ -1,3 +1,4 @@
+LIVE_HOSTED_APP_URL: https://ajaia-docs-pearl-seven.vercel.app
 WALKTHROUGH_VIDEO_URL: [PASTE_YOUR_LOOM_OR_YOUTUBE_LINK_HERE]
 
 ================================================================================
