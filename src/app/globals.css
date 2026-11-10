@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+/* Rich-Text Document Canvas Typography */
+.ajaia-editor-canvas {
+  min-height: 520px;
+  outline: none;
+  line-height: 1.75;
+  font-size: 1rem;
+  color: #f1f5f9;
+  word-break: break-word;
+}
+
+.ajaia-editor-canvas h1 {
+  font-size: 1.85rem;
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 0.75rem 0 0.65rem;
+  color: #ffffff;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  padding-bottom: 0.45rem;
+}
+
+.ajaia-editor-canvas h2 {
+  font-size: 1.38rem;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 1.15rem 0 0.5rem;
+  color: #e2e8f0;
+}
+
+.ajaia-editor-canvas h3 {
+  font-size: 1.12rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0.9rem 0 0.4rem;
+  color: #cbd5e1;
+}
+
+.ajaia-editor-canvas p {
+  margin: 0.55rem 0;
+}
+
+.ajaia-editor-canvas ul {
+  list-style-type: disc;
+  padding-left: 1.6rem;
+  margin: 0.6rem 0;
+}
+
+.ajaia-editor-canvas ol {
+  list-style-type: decimal;
+  padding-left: 1.6rem;
+  margin: 0.6rem 0;
+}
+
+.ajaia-editor-canvas li {
+  margin: 0.28rem 0;
+}
+
+.ajaia-editor-canvas blockquote {
+  border-left: 4px solid #3b82f6;
+  background: rgba(59, 130, 246, 0.08);
+  padding: 0.65rem 1rem;
+  margin: 0.85rem 0;
+  border-radius: 0 0.5rem 0.5rem 0;
+  color: #bfdbfe;
+  font-style: italic;
+}
+
+.ajaia-editor-canvas code {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  padding: 0.12rem 0.4rem;
+  border-radius: 0.35rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.88em;
+  color: #93c5fd;
+}
+
+.ajaia-editor-canvas hr {
+  border: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.25);
+  margin: 1.25rem 0;
+}
+
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only-sheet {
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .ajaia-editor-canvas,
+  .ajaia-editor-canvas h1,
+  .ajaia-editor-canvas h2,
+  .ajaia-editor-canvas h3,
+  .ajaia-editor-canvas p,
+  .ajaia-editor-canvas li,
+  .ajaia-editor-canvas blockquote {
+    color: #000000 !important;
+  }
+}

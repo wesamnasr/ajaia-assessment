@@ -1,0 +1,38 @@
+WALKTHROUGH_VIDEO_URL: [PASTE_YOUR_LOOM_OR_YOUTUBE_LINK_HERE]
+
+================================================================================
+3–5 MINUTE WALKTHROUGH VIDEO SCRIPT (READ-ALONG GUIDE)
+================================================================================
+
+[0:00 - 0:45] 1. Introduction & Main User Flow (Document Creation & Rich-Text Editing)
+- "Hi Ajaia team, I'm Wesam Nasr, and this is Ajaia Docs — a lightweight, AI-native collaborative document workspace built with Next.js 14 and TypeScript."
+- Show the main workspace:
+  1. Left sidebar cleanly separating "My Owned Documents" from "Shared With Me".
+  2. Click "+ New Document", rename the title inline, and format content using the rich-text toolbar (H1, H2, Bold, Italic, Underline, Blockquote, Bulleted List, and Numbered List).
+  3. Refresh the browser page to demonstrate that the document and its rich HTML formatting persist automatically.
+
+[0:45 - 1:35] 2. Multi-Mode File Upload Workflow
+- Click "Upload / Import File" in the top bar.
+- Point out the explicit supported file types (.txt, .md, .docx, .html, .csv, .json up to 2 MB) and the 3 product-relevant workflows:
+  1. Turn a .md, .txt, or .docx file into a new editable rich-text document.
+  2. Import file content directly into the active draft.
+  3. Attach a reference file for team download.
+- Upload a sample .md or .txt file as a new document and show how headings and lists become immediately editable.
+
+[1:35 - 2:30] 3. Role-Based Sharing & Access Control (Owner vs. Editor vs. Viewer)
+- Click "Share" on an owned document.
+- Show the Document Owner (Wesam Nasr) granting "Editor" access to Sara Chen and "Viewer (Read-Only)" access to Alex Rivera (or inviting any email address).
+- Use the Instant User Switcher in the top header:
+  - Switch to Sara Chen -> show the document under "Shared With Me" with the green "Can Edit" badge and make an edit.
+  - Switch to Alex Rivera -> show the amber "View Only" badge, the locked read-only toolbar banner, and explain that backend PATCH/DELETE routes enforce HTTP 403 Forbidden for Viewers.
+
+[2:30 - 3:15] 4. Stretch Features (AI Copilot, Version History, Comments & Export)
+- Show the Right Sidebar:
+  - Run "Summarize Doc" or "Action Items" in the AI Copilot and click "+ Insert Into Doc".
+  - Post and resolve a collaborative comment.
+  - Open the "Versions" tab and restore a previous snapshot in one click.
+  - Click ".MD" and "PDF" in the top bar to export.
+
+[3:15 - 4:00] 5. Key Implementation Tradeoffs, Intentional Scope Cuts & AI Workflow
+- Explain why we prioritized a dual-mode storage adapter (Cloud Postgres in production + zero-config local persistence for reviewers) and a ref-synchronized React rich-text engine over complex WebSocket CRDTs.
+- Mention how AI accelerated route and parser scaffolding, while human engineering judgment fixed React contentEditable cursor resets, enforced server-side HTTP 403 permission guards, and verified everything with 5 automated end-to-end integration tests (`npm test`).
