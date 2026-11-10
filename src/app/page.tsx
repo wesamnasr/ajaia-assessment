@@ -468,6 +468,29 @@ export default function AjaiaDocsWorkspace() {
     }
   };
 
+  const handleMakeDocumentPrivate = async () => {
+    if (!activeDoc || activeDoc.shares.length === 0) return;
+    try {
+      let latestDoc = activeDoc;
+      for (const share of activeDoc.shares) {
+        const res = await fetch(
+          `/api/documents/${encodeURIComponent(activeDoc.id)}/shares?actorUserId=${encodeURIComponent(
+            activeUserId
+          )}&shareId=${encodeURIComponent(share.id)}`,
+          { method: 'DELETE' }
+        );
+        const payload = await res.json();
+        if (!res.ok) throw new Error(payload.error || 'Failed to revoke share');
+        latestDoc = payload.document;
+      }
+      setActiveDoc(latestDoc);
+      await refreshWorkspace(activeUserId, activeDoc.id);
+      showNotification(`"${activeDoc.title}" is now Private (Only You).`, 'info');
+    } catch (err) {
+      showNotification(err instanceof Error ? err.message : 'Failed to make document private', 'error');
+    }
+  };
+
   const handleFileUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFile) {
@@ -1013,11 +1036,18 @@ export default function AjaiaDocsWorkspace() {
                   {filteredOwned.map((doc) => {
                     const selected = activeDoc?.id === doc.id;
                     return (
-                      <button
+                      <div
                         key={doc.id}
-                        type="button"
                         onClick={() => fetchDocumentDetail(doc.id, activeUserId, true)}
-                        className={`text-left p-2.5 rounded-lg border transition ${
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            fetchDocumentDetail(doc.id, activeUserId, true);
+                          }
+                        }}
+                        className={`text-left p-2.5 rounded-lg border transition cursor-pointer ${
                           selected
                             ? 'bg-blue-600/15 border-blue-500/60 text-white'
                             : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700 text-slate-300'
@@ -1025,18 +1055,34 @@ export default function AjaiaDocsWorkspace() {
                       >
                         <div className="flex items-start justify-between gap-2">
                           <span className="font-semibold text-xs line-clamp-1">{doc.title}</span>
-                          <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                            Owner
+                          <span
+                            className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded border ${
+                              doc.shareCount > 0
+                                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                : 'bg-slate-800/80 text-slate-300 border-slate-700'
+                            }`}
+                          >
+                            {doc.shareCount > 0 ? `Shared (${doc.shareCount})` : 'Private'}
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-400 line-clamp-1 mt-1">{doc.excerpt}</p>
                         <div className="flex items-center justify-between text-[10px] text-slate-500 mt-2">
                           <span>{doc.wordCount} words</span>
-                          <span>
-                            {doc.shareCount > 0 ? `Shared with ${doc.shareCount}` : 'Private'}
-                          </span>
+                          <button
+                            type="button"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              await fetchDocumentDetail(doc.id, activeUserId, true);
+                              setShowShareModal(true);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border border-blue-500/30 font-medium transition"
+                            title="Manage sharing for this specific document"
+                          >
+                            <Share2 className="h-2.5 w-2.5" />
+                            {doc.shareCount > 0 ? 'Manage Share' : 'Share File'}
+                          </button>
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -1773,6 +1819,31 @@ export default function AjaiaDocsWorkspace() {
               </div>
             ) : (
               <>
+                {/* Per-Document Privacy vs Shared Status Banner */}
+                <div className="mt-3 p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between gap-2 text-xs">
+                  <div>
+                    <div className="font-semibold text-slate-200">
+                      {activeDoc.shares.length === 0
+                        ? 'Private Document (Only You)'
+                        : `Shared Document (${activeDoc.shares.length} Collaborator${
+                            activeDoc.shares.length === 1 ? '' : 's'
+                          })`}
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      Sharing applies strictly to this document only. Other files remain unaffected.
+                    </div>
+                  </div>
+                  {activeDoc.shares.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleMakeDocumentPrivate}
+                      className="shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-red-500/15 text-red-300 border border-red-500/30 hover:bg-red-500/25 transition"
+                    >
+                      Make Private (Unshare All)
+                    </button>
+                  )}
+                </div>
+
                 {/* Quick Share with Seeded Team Accounts */}
                 <div className="mt-4">
                   <label className="text-xs font-semibold text-slate-300 block mb-2">
@@ -1891,15 +1962,26 @@ export default function AjaiaDocsWorkspace() {
                       <span>
                         <strong className="text-slate-200">{s.userName}</strong> ({s.userEmail})
                       </span>
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                          s.role === 'editor'
-                            ? 'bg-emerald-500/20 text-emerald-300'
-                            : 'bg-amber-500/20 text-amber-300'
-                        }`}
-                      >
-                        {s.role === 'editor' ? 'Editor' : 'Viewer'}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                            s.role === 'editor'
+                              ? 'bg-emerald-500/20 text-emerald-300'
+                              : 'bg-amber-500/20 text-amber-300'
+                          }`}
+                        >
+                          {s.role === 'editor' ? 'Editor' : 'Viewer'}
+                        </span>
+                        {isOwner && (
+                          <button
+                            type="button"
+                            onClick={() => handleRevokeShare(s.id)}
+                            className="px-1.5 py-0.5 rounded text-[10px] bg-red-500/15 text-red-300 hover:bg-red-500/25 font-medium"
+                          >
+                            Revoke
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
