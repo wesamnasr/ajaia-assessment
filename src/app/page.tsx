@@ -19,7 +19,14 @@ import {
   List,
   ListOrdered,
   Lock,
+  Maximize2,
   MessageSquare,
+  Minimize2,
+  Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Paperclip,
   Plus,
   Printer,
@@ -30,6 +37,7 @@ import {
   Search,
   Share2,
   Sparkles,
+  Sun,
   Trash2,
   Type,
   Underline,
@@ -71,6 +79,12 @@ export default function AjaiaDocsWorkspace() {
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [rightTab, setRightTab] = useState<RightTab>('ai');
+  const [theme, setTheme] = useState<'dark' | 'light'>('light');
+  const [leftCollapsed, setLeftCollapsed] = useState<boolean>(false);
+  const [rightCollapsed, setRightCollapsed] = useState<boolean>(false);
+  const [leftWidth, setLeftWidth] = useState<number>(310);
+  const [rightWidth, setRightWidth] = useState<number>(340);
+  const resizingSideRef = useRef<'left' | 'right' | null>(null);
   const [banner, setBanner] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [health, setHealth] = useState<HealthStatus | null>(null);
 
@@ -207,6 +221,52 @@ export default function AjaiaDocsWorkspace() {
   useEffect(() => {
     refreshWorkspace(activeUserId);
   }, [activeUserId, refreshWorkspace]);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem('ajaia_theme');
+      if (saved === 'light' || saved === 'dark') {
+        setTheme(saved);
+      }
+    } catch {
+      // Ignore storage access errors
+    }
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('theme-light', theme === 'light');
+    try {
+      window.localStorage.setItem('ajaia_theme', theme);
+    } catch {
+      // Ignore storage errors
+    }
+  }, [theme]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizingSideRef.current) return;
+      if (resizingSideRef.current === 'left') {
+        const nextWidth = Math.max(220, Math.min(480, e.clientX));
+        setLeftWidth(nextWidth);
+      } else if (resizingSideRef.current === 'right') {
+        const nextWidth = Math.max(240, Math.min(500, window.innerWidth - e.clientX));
+        setRightWidth(nextWidth);
+      }
+    };
+    const handleMouseUp = () => {
+      if (resizingSideRef.current) {
+        resizingSideRef.current = null;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
 
   // Ensure editor DOM is populated once the contentEditable node mounts after activeDoc transitions from null
   useEffect(() => {
@@ -645,7 +705,11 @@ export default function AjaiaDocsWorkspace() {
   const liveWordCount = useMemo(() => countWords(livePlainText), [livePlainText]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100">
+    <div
+      className={`min-h-screen flex flex-col transition-colors duration-150 ${
+        theme === 'light' ? 'theme-light bg-slate-50 text-slate-900' : 'theme-dark bg-slate-950 text-slate-100'
+      }`}
+    >
       {/* Top Global Header Bar */}
       <header className="no-print border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-30 px-4 py-2.5">
         <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-3">
@@ -669,37 +733,36 @@ export default function AjaiaDocsWorkspace() {
             </div>
           </div>
 
-          {/* Instant User Switcher (Seeded Accounts + Custom Login) */}
+          {/* Instant User Switcher Dropdown (Seeded Accounts + Custom Login) */}
           <div className="flex items-center gap-2 bg-slate-950/90 border border-slate-800 rounded-lg px-2.5 py-1.5">
             <Users className="h-4 w-4 text-slate-400 shrink-0" />
-            <span className="text-xs text-slate-400 hidden sm:inline">Active User:</span>
-            <div className="flex items-center gap-1 flex-wrap">
-              {users.map((u) => {
-                const isCurrent = u.id === activeUserId;
-                return (
-                  <button
-                    key={u.id}
-                    type="button"
-                    onClick={() => setActiveUserId(u.id)}
-                    className={`text-xs px-2.5 py-1 rounded-md font-medium transition flex items-center gap-1.5 ${
-                      isCurrent
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'text-slate-300 hover:bg-slate-800'
-                    }`}
-                    title={`Switch to ${u.name} (${u.email}) — ${u.roleTitle}`}
-                  >
-                    <span
-                      className="h-2 w-2 rounded-full shrink-0"
-                      style={{ backgroundColor: u.avatarColor }}
-                    />
-                    <span>{u.name}</span>
-                  </button>
-                );
-              })}
+            <label htmlFor="active-user-select" className="text-xs text-slate-400 hidden sm:inline">
+              Active User:
+            </label>
+            <div className="flex items-center gap-2">
+              {activeUser && (
+                <span
+                  className="h-2.5 w-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: activeUser.avatarColor }}
+                />
+              )}
+              <select
+                id="active-user-select"
+                aria-label="Select Active User Account"
+                value={activeUserId}
+                onChange={(e) => setActiveUserId(e.target.value)}
+                className="bg-slate-900 text-slate-100 text-xs font-medium border border-slate-700 rounded-md px-2.5 py-1 focus:outline-none focus:border-blue-500 cursor-pointer"
+              >
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.email}) — {u.roleTitle}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
                 onClick={() => setShowNewUserModal(true)}
-                className="text-xs px-2 py-1 rounded-md text-blue-400 hover:bg-blue-500/10 border border-blue-500/20 flex items-center gap-1"
+                className="text-xs px-2 py-1 rounded-md text-blue-400 hover:bg-blue-500/10 border border-blue-500/20 flex items-center gap-1 shrink-0"
                 title="Add or switch to another user account"
               >
                 <UserPlus className="h-3.5 w-3.5" />
@@ -710,6 +773,26 @@ export default function AjaiaDocsWorkspace() {
 
           {/* Top Action Toolbar */}
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+              aria-label="Toggle Light or Dark Theme"
+              className="text-xs font-medium px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 flex items-center gap-1.5 transition"
+              title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            >
+              {theme === 'dark' ? (
+                <>
+                  <Sun className="h-3.5 w-3.5 text-amber-400" />
+                  <span>Light</span>
+                </>
+              ) : (
+                <>
+                  <Moon className="h-3.5 w-3.5 text-blue-400" />
+                  <span>Dark</span>
+                </>
+              )}
+            </button>
+
             <button
               type="button"
               onClick={() => setShowUploadModal(true)}
@@ -777,18 +860,27 @@ export default function AjaiaDocsWorkspace() {
         </div>
       )}
 
-      {/* Main 3-Column Workspace */}
-      <div className="flex-1 max-w-[1600px] w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-0">
-        {/* LEFT SIDEBAR: Owned vs. Shared Documents */}
-        <aside className="no-print lg:col-span-3 border-r border-slate-800 bg-slate-900/40 p-3.5 flex flex-col gap-4">
-          <div className="flex items-center gap-2">
+      {/* Main Resizable & Collapsible 3-Column Workspace */}
+      <div className="flex-1 max-w-[1680px] w-full mx-auto flex flex-col lg:flex-row items-stretch">
+        {/* LEFT SIDEBAR: Owned vs. Shared Documents (Collapsible + Resizable) */}
+        {leftCollapsed ? (
+          <aside className="no-print border-b lg:border-b-0 lg:border-r border-slate-800 bg-slate-900/60 p-2 flex lg:flex-col items-center justify-between lg:justify-start gap-3 shrink-0 lg:w-12">
+            <button
+              type="button"
+              onClick={() => setLeftCollapsed(false)}
+              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-blue-400 border border-slate-700 transition"
+              title="Expand Documents Sidebar"
+              aria-label="Expand Documents Sidebar"
+            >
+              <PanelLeftOpen className="h-4 w-4" />
+            </button>
             <button
               type="button"
               onClick={handleCreateNewDocument}
-              className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 shadow-sm transition"
+              className="p-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition"
+              title="New Document"
             >
               <FilePlus className="h-4 w-4" />
-              <span>New Document</span>
             </button>
             <button
               type="button"
@@ -796,148 +888,232 @@ export default function AjaiaDocsWorkspace() {
                 setUploadMode('new-document');
                 setShowUploadModal(true);
               }}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 px-2.5 rounded-lg border border-slate-700 flex items-center gap-1 transition"
-              title="Create document from uploaded file (.txt, .md, .docx)"
+              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
+              title="Upload / Import File"
             >
               <FileUp className="h-4 w-4 text-blue-400" />
             </button>
-          </div>
-
-          {/* Search Filter */}
-          <div className="relative">
-            <Search className="h-3.5 w-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Filter owned or shared docs..."
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-blue-500"
-            />
-          </div>
-
-          {/* Active Identity Card */}
-          {activeUser && (
-            <div className="rounded-lg bg-slate-950/90 border border-slate-800/90 p-2.5 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-slate-200">{activeUser.name}</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                  {activeUser.roleTitle}
-                </span>
-              </div>
-              <div className="text-slate-400 text-[11px] mt-0.5">{activeUser.email}</div>
-            </div>
-          )}
-
-          {/* Owned Documents List */}
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between px-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
-                <FolderOpen className="h-3.5 w-3.5" />
-                My Owned Documents
-              </span>
-              <span className="text-[11px] px-1.5 py-0.2 rounded-full bg-blue-500/15 text-blue-300 font-semibold">
+            <div
+              className="hidden lg:flex flex-col items-center gap-1 mt-2 pt-2 border-t border-slate-800 text-[10px] font-bold text-slate-400"
+              title={`${filteredOwned.length} Owned • ${filteredShared.length} Shared`}
+            >
+              <span className="px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400">
                 {filteredOwned.length}
               </span>
-            </div>
-
-            {filteredOwned.length === 0 ? (
-              <p className="text-xs text-slate-500 px-2 py-2 italic">
-                No owned documents match. Click &ldquo;New Document&rdquo; above.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-1.5">
-                {filteredOwned.map((doc) => {
-                  const selected = activeDoc?.id === doc.id;
-                  return (
-                    <button
-                      key={doc.id}
-                      type="button"
-                      onClick={() => fetchDocumentDetail(doc.id, activeUserId, true)}
-                      className={`text-left p-2.5 rounded-lg border transition ${
-                        selected
-                          ? 'bg-blue-600/15 border-blue-500/60 text-white'
-                          : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700 text-slate-300'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="font-semibold text-xs line-clamp-1">{doc.title}</span>
-                        <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                          Owner
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400 line-clamp-1 mt-1">{doc.excerpt}</p>
-                      <div className="flex items-center justify-between text-[10px] text-slate-500 mt-2">
-                        <span>{doc.wordCount} words</span>
-                        <span>
-                          {doc.shareCount > 0 ? `Shared with ${doc.shareCount}` : 'Private'}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Shared With Me List */}
-          <div className="flex flex-col gap-1.5 mt-2">
-            <div className="flex items-center justify-between px-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-                <Share2 className="h-3.5 w-3.5" />
-                Shared With Me
-              </span>
-              <span className="text-[11px] px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-300 font-semibold">
+              <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">
                 {filteredShared.length}
               </span>
             </div>
+          </aside>
+        ) : (
+          <aside
+            style={{ width: undefined }}
+            className="no-print border-b lg:border-b-0 lg:border-r border-slate-800 bg-slate-900/40 p-3.5 flex flex-col gap-3.5 shrink-0 relative lg:w-[var(--left-panel-w)]"
+            ref={(el) => {
+              if (el) el.style.setProperty('--left-panel-w', `${leftWidth}px`);
+            }}
+          >
+            {/* Sidebar Control Header (Resize + Collapse) */}
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <FolderOpen className="h-3.5 w-3.5 text-blue-400" />
+                Workspace Docs
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setLeftWidth((w) => (w >= 380 ? 260 : w <= 270 ? 310 : 410))}
+                  className="hidden lg:flex p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition"
+                  title="Toggle Sidebar Width (Compact / Standard / Wide)"
+                  aria-label="Toggle Left Sidebar Width"
+                >
+                  {leftWidth >= 380 ? (
+                    <Minimize2 className="h-3.5 w-3.5" />
+                  ) : (
+                    <Maximize2 className="h-3.5 w-3.5" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLeftCollapsed(true)}
+                  className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition"
+                  title="Collapse Documents Sidebar"
+                  aria-label="Collapse Documents Sidebar"
+                >
+                  <PanelLeftClose className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
 
-            {filteredShared.length === 0 ? (
-              <p className="text-xs text-slate-500 px-2 py-2 italic">
-                No documents shared with {activeUser?.name || 'this user'} yet.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-1.5">
-                {filteredShared.map((doc) => {
-                  const selected = activeDoc?.id === doc.id;
-                  const isEditorRole = doc.accessRole === 'editor';
-                  return (
-                    <button
-                      key={doc.id}
-                      type="button"
-                      onClick={() => fetchDocumentDetail(doc.id, activeUserId, true)}
-                      className={`text-left p-2.5 rounded-lg border transition ${
-                        selected
-                          ? 'bg-emerald-600/15 border-emerald-500/60 text-white'
-                          : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700 text-slate-300'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="font-semibold text-xs line-clamp-1">{doc.title}</span>
-                        <span
-                          className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded border ${
-                            isEditorRole
-                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                              : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                          }`}
-                        >
-                          {isEditorRole ? 'Can Edit' : 'View Only'}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400 line-clamp-1 mt-1">{doc.excerpt}</p>
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 mt-2">
-                        <span>Owner: {doc.ownerName}</span>
-                        <span>{doc.wordCount} words</span>
-                      </div>
-                    </button>
-                  );
-                })}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCreateNewDocument}
+                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 shadow-sm transition"
+              >
+                <FilePlus className="h-4 w-4" />
+                <span>New Document</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setUploadMode('new-document');
+                  setShowUploadModal(true);
+                }}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 px-2.5 rounded-lg border border-slate-700 flex items-center gap-1 transition"
+                title="Create document from uploaded file (.txt, .md, .docx)"
+              >
+                <FileUp className="h-4 w-4 text-blue-400" />
+              </button>
+            </div>
+
+            {/* Search Filter */}
+            <div className="relative">
+              <Search className="h-3.5 w-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter owned or shared docs..."
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            {/* Active Identity Card */}
+            {activeUser && (
+              <div className="rounded-lg bg-slate-950/90 border border-slate-800/90 p-2.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-200">{activeUser.name}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                    {activeUser.roleTitle}
+                  </span>
+                </div>
+                <div className="text-slate-400 text-[11px] mt-0.5">{activeUser.email}</div>
               </div>
             )}
-          </div>
-        </aside>
+
+            {/* Owned Documents List */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+                  <FolderOpen className="h-3.5 w-3.5" />
+                  My Owned Documents
+                </span>
+                <span className="text-[11px] px-1.5 py-0.2 rounded-full bg-blue-500/15 text-blue-300 font-semibold">
+                  {filteredOwned.length}
+                </span>
+              </div>
+
+              {filteredOwned.length === 0 ? (
+                <p className="text-xs text-slate-500 px-2 py-2 italic">
+                  No owned documents match. Click &ldquo;New Document&rdquo; above.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {filteredOwned.map((doc) => {
+                    const selected = activeDoc?.id === doc.id;
+                    return (
+                      <button
+                        key={doc.id}
+                        type="button"
+                        onClick={() => fetchDocumentDetail(doc.id, activeUserId, true)}
+                        className={`text-left p-2.5 rounded-lg border transition ${
+                          selected
+                            ? 'bg-blue-600/15 border-blue-500/60 text-white'
+                            : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700 text-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="font-semibold text-xs line-clamp-1">{doc.title}</span>
+                          <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                            Owner
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 line-clamp-1 mt-1">{doc.excerpt}</p>
+                        <div className="flex items-center justify-between text-[10px] text-slate-500 mt-2">
+                          <span>{doc.wordCount} words</span>
+                          <span>
+                            {doc.shareCount > 0 ? `Shared with ${doc.shareCount}` : 'Private'}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Shared With Me List */}
+            <div className="flex flex-col gap-1.5 mt-2">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                  <Share2 className="h-3.5 w-3.5" />
+                  Shared With Me
+                </span>
+                <span className="text-[11px] px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-300 font-semibold">
+                  {filteredShared.length}
+                </span>
+              </div>
+
+              {filteredShared.length === 0 ? (
+                <p className="text-xs text-slate-500 px-2 py-2 italic">
+                  No documents shared with {activeUser?.name || 'this user'} yet.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {filteredShared.map((doc) => {
+                    const selected = activeDoc?.id === doc.id;
+                    const isEditorRole = doc.accessRole === 'editor';
+                    return (
+                      <button
+                        key={doc.id}
+                        type="button"
+                        onClick={() => fetchDocumentDetail(doc.id, activeUserId, true)}
+                        className={`text-left p-2.5 rounded-lg border transition ${
+                          selected
+                            ? 'bg-emerald-600/15 border-emerald-500/60 text-white'
+                            : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700 text-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="font-semibold text-xs line-clamp-1">{doc.title}</span>
+                          <span
+                            className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded border ${
+                              isEditorRole
+                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                                : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                            }`}
+                          >
+                            {isEditorRole ? 'Can Edit' : 'View Only'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 line-clamp-1 mt-1">{doc.excerpt}</p>
+                        <div className="flex items-center justify-between text-[10px] text-slate-400 mt-2">
+                          <span>Owner: {doc.ownerName}</span>
+                          <span>{doc.wordCount} words</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Drag Handle to Resize Left Sidebar */}
+            <div
+              onMouseDown={() => {
+                resizingSideRef.current = 'left';
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+              }}
+              title="Drag to resize left sidebar"
+              className="hidden lg:block absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-blue-500/40 transition-colors"
+            />
+          </aside>
+        )}
 
         {/* CENTER COLUMN: Rich-Text Document Editor */}
-        <main className="lg:col-span-6 p-4 md:p-6 flex flex-col gap-4 bg-slate-950">
+        <main className="flex-1 min-w-0 p-4 md:p-6 flex flex-col gap-4 bg-slate-950">
           {!activeDoc ? (
             <div className="flex-1 rounded-xl border border-slate-800 bg-slate-900/40 p-12 flex flex-col items-center justify-center text-center">
               <FileText className="h-12 w-12 text-slate-600 mb-3" />
@@ -1265,10 +1441,104 @@ export default function AjaiaDocsWorkspace() {
           )}
         </main>
 
-        {/* RIGHT SIDEBAR: AI Writing Assistant, Comments, and Version History */}
-        <aside className="no-print lg:col-span-3 border-l border-slate-800 bg-slate-900/40 p-3.5 flex flex-col gap-3">
-          {/* Tab Switcher */}
-          <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+        {/* RIGHT SIDEBAR: AI Writing Assistant, Comments, and Version History (Collapsible + Resizable) */}
+        {rightCollapsed ? (
+          <aside className="no-print border-t lg:border-t-0 lg:border-l border-slate-800 bg-slate-900/60 p-2 flex lg:flex-col items-center justify-between lg:justify-start gap-3 shrink-0 lg:w-12">
+            <button
+              type="button"
+              onClick={() => setRightCollapsed(false)}
+              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-blue-400 border border-slate-700 transition"
+              title="Expand AI & Collaboration Sidebar"
+              aria-label="Expand AI & Collaboration Sidebar"
+            >
+              <PanelRightOpen className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setRightTab('ai');
+                setRightCollapsed(false);
+              }}
+              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-blue-400 transition"
+              title="Open AI Copilot"
+            >
+              <Sparkles className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setRightTab('comments');
+                setRightCollapsed(false);
+              }}
+              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 transition"
+              title="Open Comments"
+            >
+              <MessageSquare className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setRightTab('history');
+                setRightCollapsed(false);
+              }}
+              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 transition"
+              title="Open Version History"
+            >
+              <History className="h-4 w-4" />
+            </button>
+          </aside>
+        ) : (
+          <aside
+            className="no-print border-t lg:border-t-0 lg:border-l border-slate-800 bg-slate-900/40 p-3.5 flex flex-col gap-3 shrink-0 relative lg:w-[var(--right-panel-w)]"
+            ref={(el) => {
+              if (el) el.style.setProperty('--right-panel-w', `${rightWidth}px`);
+            }}
+          >
+            {/* Drag Handle to Resize Right Sidebar */}
+            <div
+              onMouseDown={() => {
+                resizingSideRef.current = 'right';
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+              }}
+              title="Drag to resize right sidebar"
+              className="hidden lg:block absolute top-0 left-0 w-1.5 h-full cursor-col-resize hover:bg-blue-500/40 transition-colors"
+            />
+
+            {/* Right Sidebar Header (Resize + Collapse) */}
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <Sparkles className="h-3.5 w-3.5 text-blue-400" />
+                Studio &amp; History
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setRightWidth((w) => (w >= 400 ? 280 : w <= 290 ? 340 : 440))}
+                  className="hidden lg:flex p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition"
+                  title="Toggle Sidebar Width (Compact / Standard / Wide)"
+                  aria-label="Toggle Right Sidebar Width"
+                >
+                  {rightWidth >= 400 ? (
+                    <Minimize2 className="h-3.5 w-3.5" />
+                  ) : (
+                    <Maximize2 className="h-3.5 w-3.5" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRightCollapsed(true)}
+                  className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition"
+                  title="Collapse Studio Sidebar"
+                  aria-label="Collapse Studio Sidebar"
+                >
+                  <PanelRightClose className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Tab Switcher */}
+            <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
             <button
               type="button"
               onClick={() => setRightTab('ai')}
@@ -1470,7 +1740,8 @@ export default function AjaiaDocsWorkspace() {
               ))}
             </div>
           )}
-        </aside>
+          </aside>
+        )}
       </div>
 
       {/* MODAL 1: Share Document & Manage Permissions */}

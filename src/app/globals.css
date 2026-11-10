@@ -3,10 +3,10 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light dark;
 }
 
-/* Rich-Text Document Canvas Typography */
+/* Rich-Text Document Canvas Typography — Dark Mode (Default) */
 .ajaia-editor-canvas {
   min-height: 520px;
   outline: none;
@@ -14,6 +14,7 @@
   font-size: 1rem;
   color: #f1f5f9;
   word-break: break-word;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .ajaia-editor-canvas h1 {
@@ -86,6 +87,134 @@
   border: 0;
   border-top: 1px solid rgba(148, 163, 184, 0.25);
   margin: 1.25rem 0;
+}
+
+/* ==========================================================================
+   Light Theme Surface & Typography Overrides (.theme-light)
+   ========================================================================== */
+.theme-light {
+  color-scheme: light;
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+.theme-light .ajaia-editor-canvas {
+  color: #1e293b;
+}
+
+.theme-light .ajaia-editor-canvas h1 {
+  color: #0f172a;
+  border-bottom-color: #e2e8f0;
+}
+
+.theme-light .ajaia-editor-canvas h2 {
+  color: #1e293b;
+}
+
+.theme-light .ajaia-editor-canvas h3 {
+  color: #334155;
+}
+
+.theme-light .ajaia-editor-canvas blockquote {
+  border-left-color: #2563eb;
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.theme-light .ajaia-editor-canvas code {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #1d4ed8;
+}
+
+.theme-light .ajaia-editor-canvas hr {
+  border-top-color: #e2e8f0;
+}
+
+/* Comprehensive Light Mode UI Surface Adaptation */
+.theme-light.bg-slate-950,
+.theme-light .bg-slate-950 {
+  background-color: #f8fafc !important;
+}
+
+.theme-light .bg-slate-950\/90,
+.theme-light .bg-slate-950\/60,
+.theme-light .bg-slate-950\/40 {
+  background-color: #f8fafc !important;
+}
+
+.theme-light .bg-slate-900,
+.theme-light .bg-slate-900\/90,
+.theme-light .bg-slate-900\/80,
+.theme-light .bg-slate-900\/60,
+.theme-light .bg-slate-900\/40 {
+  background-color: #ffffff !important;
+}
+
+.theme-light .bg-slate-800 {
+  background-color: #f1f5f9 !important;
+}
+
+.theme-light .hover\:bg-slate-800:hover,
+.theme-light .hover\:bg-slate-700:hover {
+  background-color: #e2e8f0 !important;
+}
+
+.theme-light .border-slate-800,
+.theme-light .border-slate-800\/90,
+.theme-light .border-slate-800\/80,
+.theme-light .border-slate-800\/60,
+.theme-light .border-slate-700 {
+  border-color: #e2e8f0 !important;
+}
+
+.theme-light .text-white,
+.theme-light .text-slate-100,
+.theme-light .text-slate-200 {
+  color: #0f172a !important;
+}
+
+.theme-light .text-slate-300 {
+  color: #334155 !important;
+}
+
+.theme-light .text-slate-400,
+.theme-light .text-slate-500 {
+  color: #64748b !important;
+}
+
+/* Preserve white text on solid accent buttons in Light Mode */
+.theme-light .bg-blue-600,
+.theme-light .bg-blue-600 span,
+.theme-light .bg-emerald-600,
+.theme-light .bg-amber-600 {
+  color: #ffffff !important;
+}
+
+/* High-contrast semantic badges in Light Mode */
+.theme-light .text-blue-300,
+.theme-light .text-blue-400 {
+  color: #1d4ed8 !important;
+}
+
+.theme-light .text-emerald-300,
+.theme-light .text-emerald-400 {
+  color: #047857 !important;
+}
+
+.theme-light .text-amber-200,
+.theme-light .text-amber-300,
+.theme-light .text-amber-400 {
+  color: #b45309 !important;
+}
+
+.theme-light .text-red-200,
+.theme-light .text-red-300 {
+  color: #b91c1c !important;
+}
+
+.theme-light .text-purple-400 {
+  color: #6d28d9 !important;
 }
 
 @media print {

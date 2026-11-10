@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { Pool } from 'pg';
+import type { Pool as PgPool } from 'pg';
 import {
   AccessRole,
   DocumentAttachment,
@@ -311,15 +311,16 @@ function writeLocalStore(state: StoreState): void {
 }
 
 // Optional Cloud Postgres Pool (when DATABASE_URL is configured)
-let pgPool: Pool | null = null;
+let pgPool: PgPool | null = null;
 let pgInitialized = false;
 
-async function getPostgresStore(): Promise<Pool | null> {
+async function getPostgresStore(): Promise<PgPool | null> {
   const dbUrl = (process.env.DATABASE_URL || '').trim();
   if (!dbUrl) return null;
 
   try {
     if (!pgPool) {
+      const { Pool } = eval('require')('pg') as typeof import('pg');
       pgPool = new Pool({
         connectionString: dbUrl,
         connectionTimeoutMillis: 5000,
