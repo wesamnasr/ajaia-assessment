@@ -57,6 +57,7 @@ export function buildInitialSeedState(): StoreState {
 
   const doc1Html = [
     '<h1>Ajaia Q4 AI Product Strategy &amp; Workspace Roadmap</h1>',
+    '<p><strong>GitHub Repository:</strong> <code>https://github.com/wesamnasr/ajaia-assessment</code> | <strong>Author:</strong> Wesam Nasr (<code>wesamnasr999@gmail.com</code>)</p>',
     '<p>This living specification outlines the <strong>Ajaia Collaborative Docs</strong> initiative—designed to help distributed engineering and product teams draft, review, and ship specifications with <em>zero friction</em> and built-in <u>AI workflow assistance</u>.</p>',
     '<h2>1. Core Product Pillars</h2>',
     '<ul>',

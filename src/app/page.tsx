@@ -5,6 +5,7 @@ import {
   Bold,
   Check,
   Clock,
+  Code2,
   Download,
   Eye,
   FilePlus,
@@ -1201,6 +1202,17 @@ export default function AjaiaDocsWorkspace() {
 
           {/* Top Action Toolbar */}
           <div className="flex items-center gap-2">
+            <a
+              href="https://github.com/wesamnasr/ajaia-assessment"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-medium px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 flex items-center gap-1.5 transition"
+              title="Open GitHub Source Repository (wesamnasr/ajaia-assessment)"
+            >
+              <Code2 className="h-3.5 w-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">GitHub Repo</span>
+            </a>
+
             <button
               type="button"
               onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
